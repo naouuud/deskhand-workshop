@@ -1,0 +1,42 @@
+[project]
+name = "deskhand-workshop"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Nour", email = "naoude@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=1.0",
+    "deepeval>=4.2.8,<5",
+    "fastapi>=0.146.0",
+    "httpx>=0.28.1",
+    "langchain>=1.0,<2",
+    "langchain-anthropic>=1.0,<2",
+    "langchain-community==0.4.1",
+    "langchain-core>=1.0,<2",
+    "langchain-openai>=1.0,<2",
+    "langchain-qdrant>=1.1,<2",
+    "langchain-text-splitters>=1.1,<2",
+    "langgraph>=1.2,<2",
+    "langgraph-checkpoint-sqlite>=3.1,<4",
+    "nemoguardrails>=0.24.1,<0.25",
+    "openai>=2.45,<3",
+    "pydantic>=2.7",
+    "pytest>=9.1.1",
+    "python-dotenv>=1.2.4",
+    "qdrant-client>=1.19.1",
+    "ragas>=0.4.3,<0.5",
+    "rich>=14.3.4",
+    "sse-starlette>=3.5.0",
+    "tiktoken>=0.14.0",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[project.scripts]
+deskhand-workshop = "deskhand_workshop:main"
+
+[build-system]
+requires = ["uv_build>=0.12.22,<0.13.0"]
+build-backend = "uv_build"

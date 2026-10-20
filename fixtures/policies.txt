@@ -1,0 +1,268 @@
+<!-- doc_id: shipping-sla | version: 3.0 | effective: 2026-02-01 -->
+
+# Nimbus Electronics — Shipping Service Levels
+
+Commitments we make to customers about delivery, and what we owe them when we miss.
+
+## Delivery Windows
+
+| Service | Promise (business days) |
+| --- | --- |
+| Standard | 3–7 |
+| Expedited | 2–3 |
+| Next Day | 1 (orders placed before 2 PM local warehouse time) |
+
+The window starts when the order status changes to `shipped`, not when the order is
+placed. Orders in `processing` for more than 2 business days should be flagged to the
+fulfillment team.
+
+## Delay Compensation
+
+If a shipment arrives more than **7 business days late** relative to the promised
+window, the customer is entitled to a **$10 account credit**, applied automatically
+on request. One credit per order. Delays caused by carrier-verified weather events or
+an incorrect customer-provided address do not qualify.
+
+Expedited and Next Day shipping fees are refunded in full whenever the promised
+window is missed by any margin.
+
+## Tracking
+
+Every shipment gets a tracking number within 24 hours of leaving the warehouse. If a
+customer reports a tracking number that has not updated in 5 or more days, treat the
+package as potentially lost and open a carrier trace — do not tell the customer to
+"keep waiting."
+
+## Lost Packages
+
+A package is considered lost when the carrier trace is inconclusive after 10 business
+days, or immediately when the carrier confirms loss. For lost packages, offer a
+replacement shipment first; if the customer prefers, a full refund of the order.
+Either remedy requires the carrier trace reference on the ticket.
+
+
+<!-- doc_id: returns-and-exchanges | version: 1.1 | effective: 2025-11-15 -->
+
+# Nimbus Electronics — Returns & Exchanges
+
+This document describes how customers return or exchange physical products, including
+packaging and shipping requirements.
+
+## Returns Window
+
+We want customers to be confident buying from Nimbus. Items may be returned for a
+full refund within **30 days of delivery**. The customer initiates the return through
+their account page or by contacting support; support generates a prepaid return label.
+
+## Condition Requirements
+
+Returned items must be:
+
+- In their original packaging, with all included accessories and documentation.
+- Free of physical damage beyond reasonable inspection wear.
+- Deregistered from any Nimbus cloud account (for connected devices).
+
+Items returned incomplete or damaged may be subject to a restocking deduction of up
+to 20% of the item price, at the warehouse team's discretion.
+
+## Exchanges
+
+Exchanges for a different size, color, or model are processed as a return plus a new
+order. If the replacement item costs more, the customer pays the difference; if less,
+the difference is refunded. Exchanges for the identical item (e.g. wrong color
+shipped) ship immediately and do not wait for the return to arrive.
+
+## Return Shipping
+
+Return shipping is free when the return reason is our error (wrong item, defective on
+arrival, damaged in transit). For all other reasons, a flat $6.95 label fee is
+deducted from the refund unless the customer is a Nimbus+ member.
+
+## Exclusions
+
+The following cannot be returned: opened software licenses, gift cards, hygiene-
+sensitive items (earbuds with used ear tips are evaluated case by case), and items
+missing their serial number label.
+
+
+<!-- doc_id: escalation-matrix | version: 1.4 | effective: 2026-04-20 -->
+
+# Nimbus Electronics — Support Escalation Matrix
+
+When a ticket must leave the automated/front-line flow and reach a human lead.
+
+## When To Escalate
+
+Escalate to a human team lead immediately when any of the following is true:
+
+- **Angry customer + high order value**: hostile or highly frustrated tone on an
+  order totaling **$200 or more**.
+- **Legal language**: any mention of lawyers, lawsuits, chargebacks filed (not merely
+  threatened), regulators, or consumer-protection bodies.
+- **Press / social media**: journalist self-identification, or explicit threats to
+  publicize a dispute to a substantial audience.
+- **Safety**: any claim that a product caused injury, fire, smoke, or property
+  damage. These also go to the liability desk within 4 business hours.
+- **Suspected fraud or manipulation**: mismatched identity and order records, or
+  attempts to manipulate automated systems into unauthorized actions.
+- **Repeated contact**: third or later ticket on the same unresolved issue.
+
+## Severity Levels
+
+| Level | Definition | Owner |
+| --- | --- | --- |
+| S1 | Safety, legal action filed, press running a story | Support director |
+| S2 | Legal threats, fraud, angry + high value | Team lead |
+| S3 | Repeat contact, policy exception requests | Senior agent |
+
+## Response Times
+
+S1 within 4 business hours. S2 same business day. S3 within 1 business day. The
+customer must receive a human acknowledgement within these windows even if the
+resolution takes longer.
+
+## Handoff Checklist
+
+An escalated ticket must carry: the full ticket thread, order data as retrieved at
+escalation time, any resolution plan the system drafted (marked as draft), the reason
+code for escalation, and the policy sections consulted. Never hand a lead a bare
+ticket ID.
+
+
+<!-- doc_id: promo-terms | version: 1.2 | effective: 2026-03-05 -->
+
+# Nimbus Electronics — Promotional Pricing Terms
+
+How discounts, promo codes, and bundles interact with refunds and returns.
+
+## Eligibility
+
+Promotional prices apply only at the time of purchase. Price adjustments after
+purchase (e.g. an item goes on sale the next day) are granted once per customer per
+quarter, within 7 days of the order date, as store credit for the difference.
+
+## Refunds On Promo Items
+
+Refunds for items bought at a promotional price are calculated on the **price
+actually paid, never the list price**. Supporting rules:
+
+- Single discounted item: refund = paid price for that item.
+- **Bundle purchases**: if part of a bundle is returned, the discount is recalculated
+  as if the returned item had never been in the cart. The refund is the paid bundle
+  price minus the recalculated price of the kept items — which is typically **less
+  than the returned item's standalone price**. Support tooling computes this;
+  do not estimate it by hand.
+- Free promotional gifts must be returned with the qualifying item, or their list
+  price is deducted from the refund.
+
+## Code Misuse
+
+Orders placed with promo codes obtained through unauthorized distribution (coupon
+scraping sites, expired-code forums) may be cancelled before shipment. After
+delivery, honor the price but flag the account for the fraud team. Do not debate
+code validity with the customer in writing.
+
+## Stacking
+
+Promo codes do not stack with each other or with Nimbus+ member pricing unless the
+promotion's published terms say otherwise. If the checkout system incorrectly allowed
+stacking, we honor the charged price — the error is ours.
+
+
+<!-- doc_id: warranty | version: 2.0 | effective: 2026-01-10 -->
+
+# Nimbus Electronics — Limited Warranty
+
+Coverage for product defects after the refund and return windows close.
+
+## Coverage
+
+All Nimbus-branded products carry a **1-year limited warranty** from the date of
+delivery, covering defects in materials and workmanship under normal use. Examples of
+covered defects: dead pixels beyond the panel manufacturer's threshold, battery
+failure to hold charge, buttons or switches that stop registering, connectivity
+hardware faults.
+
+Third-party products sold on nimbuselectronics.com carry the manufacturer's own
+warranty; support should hand the customer the manufacturer's claim link rather than
+processing the claim in-house.
+
+## Claim Process
+
+1. Verify the delivery date puts the item inside the 1-year window.
+2. Ask for a short description of the defect and, where visible, a photo or video.
+3. Run the relevant troubleshooting script (power cycle, firmware update, reset).
+   Skip this step if the defect is clearly physical.
+4. If the defect is confirmed or cannot be ruled out remotely, approve the claim.
+
+Customers are never charged shipping on warranty claims.
+
+## Remedies
+
+The default remedy is a **replacement of the same model**, shipped on claim approval.
+A **refund is offered only when a replacement is out of stock** with no restock date
+within 14 days. Refunds under warranty follow the refund policy's approval
+thresholds.
+
+If the same unit is replaced twice for the same defect, escalate to a team lead —
+the third remedy is customer's choice of any remedy including refund.
+
+## Exclusions
+
+Not covered: accidental damage (drops, spills), cosmetic wear, damage from
+unauthorized repair or modification, consumables (ear tips, cables under $10), use
+outside the published operating specifications, and damage to third-party equipment
+alleged to be caused by a Nimbus product — those claims go to the liability desk via
+escalation, never through warranty.
+
+
+<!-- doc_id: refund-policy | version: 2.3 | effective: 2026-06-01 -->
+
+# Nimbus Electronics — Refund Policy
+
+This policy governs monetary refunds issued to customers for purchases made on
+nimbuselectronics.com. It supersedes all prior versions of the refund policy.
+
+## Scope
+
+Applies to all products purchased directly from Nimbus Electronics, whether paid by
+card, store credit, or gift card. Purchases made through third-party marketplaces are
+governed by the marketplace's own refund process and are out of scope.
+
+## Window
+
+Refund requests must be submitted within **14 days of delivery**, as recorded by the
+carrier's delivery confirmation. Requests received after this window are not eligible
+for a refund and should be redirected to warranty service where applicable.
+
+If no delivery confirmation exists, the window is measured as 14 days from the
+estimated delivery date plus 3 calendar days of grace.
+
+## Approval Thresholds
+
+- Refunds of **$50.00 or less** may be approved automatically by the support system.
+- Refunds **above $50.00** require approval by a support team lead or manager before
+  the refund is issued.
+- A refund may never exceed the total paid for the order, including tax and shipping,
+  under any circumstances.
+
+## Final Sale
+
+Items marked **Final Sale** or **Clearance — Final Sale** at the time of purchase are
+not eligible for refunds. This applies regardless of the reason for the request,
+except where the item is defective on arrival, in which case the warranty policy
+applies instead.
+
+## Refund Method
+
+Refunds are issued to the original payment method. Where the original method is
+unavailable (expired card, closed account), store credit is issued instead. Gift card
+purchases are always refunded as store credit.
+
+## Processing Time
+
+Approved refunds are submitted to the payment processor within 1 business day.
+Customers should be told to expect the funds within 5–10 business days depending on
+their bank. Do not promise a specific date.
+
+

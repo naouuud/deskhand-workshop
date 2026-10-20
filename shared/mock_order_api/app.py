@@ -4,6 +4,7 @@ Stands in for the real order system in every checkpoint. In-memory only —
 restart it to reset refunds. Chaos modes simulate the real API misbehaving.
 GET /refunds is the till: every refund issued since the process started.
 """
+
 from __future__ import annotations
 
 import json
@@ -42,7 +43,9 @@ def _load_orders() -> dict[str, dict]:
     for order in seed["orders"]:
         days_ago = order.pop("delivered_days_ago")
         order["delivered_at"] = (
-            (now - timedelta(days=days_ago)).isoformat() if days_ago is not None else None
+            (now - timedelta(days=days_ago)).isoformat()
+            if days_ago is not None
+            else None
         )
         orders[order["order_id"]] = order
     return orders
@@ -64,7 +67,9 @@ def _chaos_mode(request: Request) -> str:
     # A typo is a loud 400, not a silent "none". A 4xx is an answer to
     # _order_api_call, so the services do not retry it.
     if mode not in CHAOS_MODES:
-        raise HTTPException(400, f"unknown chaos mode {mode!r}, expected one of {sorted(CHAOS_MODES)}")
+        raise HTTPException(
+            400, f"unknown chaos mode {mode!r}, expected one of {sorted(CHAOS_MODES)}"
+        )
     return mode
 
 
@@ -79,8 +84,15 @@ def _apply_chaos(mode: str) -> None:
         time.sleep(30)
     elif mode == "error":
         raise HTTPException(500, "chaos: simulated internal error")
-    elif mode == "flaky" and random.random() < 0.5:  # unseeded: a different pattern every run
+    elif (
+        mode == "flaky" and random.random() < 0.5
+    ):  # unseeded: a different pattern every run
         raise HTTPException(500, "chaos: simulated flaky failure")
+
+
+@app.get("/health")
+def check_health() -> str:
+    return "All good."
 
 
 @app.get("/orders/{order_id}")
@@ -138,7 +150,9 @@ def issue_refund(
     # pool could both miss; a real payment API locks on the key. Fine for class.
     if idempotency_key in REFUNDS:
         REFUND_LEDGER[idempotency_key]["post_count"] += 1
-        return REFUNDS[idempotency_key]  # same key => same refund, never a double refund
+        return REFUNDS[
+            idempotency_key
+        ]  # same key => same refund, never a double refund
     refund = {
         "refund_id": f"R-{uuid.uuid4().hex[:8]}",
         "order_id": body.order_id,
