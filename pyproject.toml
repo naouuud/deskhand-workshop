@@ -34,6 +34,9 @@ dependencies = [
     "uvicorn[standard]>=0.54.0",
 ]
 
+[tool.uv]
+package = false
+
 [project.scripts]
 deskhand-workshop = "deskhand_workshop:main"
 
