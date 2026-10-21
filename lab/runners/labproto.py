@@ -8,7 +8,9 @@ nothing the checkpoint prints can corrupt the protocol.
 This module is named `labproto` so it can never collide with a checkpoint
 module (bot, llm, errors, models, triage, obslog, ...).
 """
-# Every runner's main() does the same four steps, in this order:
+
+# Every runner's main() does the same steps, in this order:
+#   0. preload(PRELOAD)       import the provider SDKs before the request exists
 #   1. read_request()         the JSON request server.py wrote to stdin
 #   2. Channel()              take the real stdout pipe; fd 1 now goes to stderr
 #   3. use_checkpoint_dir()   the checkpoint folder first on sys.path
@@ -18,11 +20,37 @@ module (bot, llm, errors, models, triage, obslog, ...).
 # that exits without one as crashed.
 from __future__ import annotations
 
+import importlib
 import io
 import json
 import os
 import sys
+import time
 from typing import Any
+
+# Filled by preload() and read_request(); runners put startup() in their trace.
+_ready_at: float | None = None  # wall clock when preload() finished
+_startup_ms: int | None = None  # how long the run waited on this process to start
+
+
+def preload(modules: tuple[str, ...]) -> None:
+    """Import the third-party packages the checkpoint is about to import.
+
+    server.py starts the next runner before anyone asks for a run (its warm
+    pool), so this happens while the runner idles in read_request(). The SDKs
+    are thousands of files, which takes seconds where an antivirus scans each
+    one. Only third-party packages belong here: the checkpoint's own modules
+    and its .env load after the request arrives, so an edited checkpoint is
+    picked up and a model change made in the lab is seen. sys.path[0] is
+    lab/runners at this point, so nothing here can import a checkpoint module.
+    """
+    global _ready_at
+    for name in modules:
+        try:
+            importlib.import_module(name)
+        except Exception:  # noqa: BLE001 - the checkpoint's own import raises it again, into the trace
+            pass
+    _ready_at = time.time()
 
 
 class Channel:
@@ -37,7 +65,9 @@ class Channel:
 
     def emit(self, type_: str, **data: Any) -> None:
         # default=str: a datetime or Path in a trace becomes text instead of an error.
-        self._out.write(json.dumps({"type": type_, **data}, default=str, ensure_ascii=False) + "\n")
+        self._out.write(
+            json.dumps({"type": type_, **data}, default=str, ensure_ascii=False) + "\n"
+        )
         self._out.flush()  # one event, one flush: the page sees it now, not at exit
 
 
@@ -79,8 +109,29 @@ class CapturedStdout(io.TextIOBase):
 def read_request() -> dict:
     """The one JSON request on stdin. Reads to EOF, which comes when server.py
     closes stdin after writing it."""
+    global _startup_ms
     raw = sys.stdin.buffer.read().decode("utf-8")
-    return json.loads(raw) if raw.strip() else {}
+    if not raw.strip():
+        # EOF with no request: server.py stopped (or died) while this runner
+        # sat warm in its pool. Leave without running anything.
+        sys.exit(0)
+    req = json.loads(raw)
+    # lab_sent_at: when server.py handed the request over. A warm runner was
+    # ready before that (0 ms); a cold one makes the run wait for Python to
+    # start and preload() to finish. Same machine, so the clocks agree.
+    sent_at = req.pop("lab_sent_at", None)
+    if sent_at is not None and _ready_at is not None:
+        _startup_ms = max(0, int((_ready_at - sent_at) * 1000))
+    return req
+
+
+def startup() -> dict:
+    """For the trace: how long the run waited on this process before its first
+    line of checkpoint code. Kept apart from duration_ms, which times the run."""
+    return {
+        "wait_ms": _startup_ms,
+        "warm": _startup_ms is not None and _startup_ms < 100,
+    }
 
 
 def use_checkpoint_dir() -> str:

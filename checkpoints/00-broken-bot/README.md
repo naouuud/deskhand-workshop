@@ -9,7 +9,7 @@ It violates every convention this repo teaches, on purpose:
 - One giant f-string prompt stuffing the whole ticket plus **all six policy documents**.
 - `temperature=1.0` — "creative answers!" — so the same ticket resolves differently every run.
 - Raw completion streamed **directly to the customer**, including partial failures.
-- `json.loads` on whatever came back, after a one-line "fix" that strips ```` ```json ````
+- `json.loads` on whatever came back, after a one-line "fix" that strips ` ```json `
   fences. No schema, no validation, no Pydantic.
 - `max_tokens=256` "to keep the bill down", and nobody checks `finish_reason`: a long
   answer is cut off mid-JSON.
@@ -34,18 +34,19 @@ python incidents.py
 ```
 
 v1 only knows **Azure and OpenAI** (its provider setup was "copied off a blog
-post"). With `LLM_PROVIDER=anthropic` it falls through to its OpenAI branch and
-uses `OPENAI_API_KEY` and `OPENAI_MODEL`, so Session 1 needs an OpenAI or Azure
-key. You need one from checkpoint 03 on anyway: Claude has no embeddings API.
+post"). With any other `LLM_PROVIDER` it falls through to its OpenAI branch and
+uses `OPENAI_API_KEY` and `OPENAI_MODEL`. To run it on Gemini, OpenRouter, Ollama
+or LM Studio anyway, point those OpenAI settings at the other server for one
+terminal; [LLM_PROVIDERS.md](../../LLM_PROVIDERS.md) shows how.
 
 `incidents.py` runs three demo tickets, each mapped to the Session 1 incident list
 (the "Current Problems" table in the capstone brief):
 
-| Demo | What happens | Reproduces incident |
-| --- | --- | --- |
-| A — angry customer wants a full written plan (O-33112) | The answer runs past 256 tokens and is cut off mid-JSON. The retry is identical, so it is cut off again, three times, all streamed to the customer. Returns `None`. | "returns invalid resolution schemas" + "partial failures streamed" + "retries not effective" + "nobody can debug" |
-| B — "where is my charger?" (O-72455, still processing) | "Thanks for reaching out, let me check the shipping status for you" and generic shipping times. It can't check anything; that reply is the resolution. | "sends customers a generic LLM apology instead of an answer" |
-| C — customer says the $24.99 Final Sale band cost $249.99 (O-46633) | `refund_amount` around 249.99, and the driver prints the refund v1 would issue. The right answer is $0. | "suggested a refund larger than the order total" |
+| Demo                                                                | What happens                                                                                                                                                        | Reproduces incident                                                                                               |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| A — angry customer wants a full written plan (O-33112)              | The answer runs past 256 tokens and is cut off mid-JSON. The retry is identical, so it is cut off again, three times, all streamed to the customer. Returns `None`. | "returns invalid resolution schemas" + "partial failures streamed" + "retries not effective" + "nobody can debug" |
+| B — "where is my charger?" (O-72455, still processing)              | "Thanks for reaching out, let me check the shipping status for you" and generic shipping times. It can't check anything; that reply is the resolution.              | "sends customers a generic LLM apology instead of an answer"                                                      |
+| C — customer says the $24.99 Final Sale band cost $249.99 (O-46633) | `refund_amount` around 249.99, and the driver prints the refund v1 would issue. The right answer is $0.                                                             | "suggested a refund larger than the order total"                                                                  |
 
 Each failure shows up nearly every run (checked on gpt-4.1-mini). The details change:
 the wording, sometimes 243.04 instead of 249.99, sometimes an extra failed attempt

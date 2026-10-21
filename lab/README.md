@@ -10,9 +10,9 @@ outside. Delete `lab/` and nothing in `checkpoints/` changes.
 
 All five checkpoints run from the lab:
 
-| Checkpoint | How the lab runs it |
-| --- | --- |
-| 00 broken bot, 01 triage | in their own subprocess, through `lab/runners/` |
+| Checkpoint                        | How the lab runs it                                         |
+| --------------------------------- | ----------------------------------------------------------- |
+| 00 broken bot, 01 triage          | in their own subprocess, through `lab/runners/`             |
 | 02 service, 03 RAG, 04 production | through their HTTP service, which the lab can start for you |
 
 ## Start it (Windows)
@@ -40,12 +40,12 @@ switches that service's code reads, and Start passes the ticked ones as the
 environment of that one process (never `.env`, never the lab's own
 environment):
 
-| Service | Flag in Setup | Variable | What it does |
-| --- | --- | --- | --- |
-| mock order API | chaos: none, flaky, error, timeout, inconsistent | `MOCK_CHAOS` | flaky fails half the calls with 500, error all of them, timeout hangs 30s, inconsistent drops `total_usd` |
-| 02, 03, 04 | crash after refund | `DESKHAND_CRASH_AFTER_REFUND=1` | `execute_actions` exits the process right after the refund POST, before saving state |
-| 04 | kill switch | `DESKHAND_KILL_SWITCH=1` | every run stops before its next node with `KILL_SWITCH_ENGAGED` |
-| 04 | budget $ | `DESKHAND_BUDGET_USD_PER_RUN` | the per-run cap; `0.001` trips `BUDGET_EXCEEDED` on the first call |
+| Service        | Flag in Setup                                    | Variable                        | What it does                                                                                              |
+| -------------- | ------------------------------------------------ | ------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| mock order API | chaos: none, flaky, error, timeout, inconsistent | `MOCK_CHAOS`                    | flaky fails half the calls with 500, error all of them, timeout hangs 30s, inconsistent drops `total_usd` |
+| 02, 03, 04     | crash after refund                               | `DESKHAND_CRASH_AFTER_REFUND=1` | `execute_actions` exits the process right after the refund POST, before saving state                      |
+| 04             | kill switch                                      | `DESKHAND_KILL_SWITCH=1`        | every run stops before its next node with `KILL_SWITCH_ENGAGED`                                           |
+| 04             | budget $                                         | `DESKHAND_BUDGET_USD_PER_RUN`   | the per-run cap; `0.001` trips `BUDGET_EXCEEDED` on the first call                                        |
 
 The server whitelists them: the chaos modes are read from the mock's
 `CHAOS_MODES`, a checkpoint flag is offered only if its variable appears in
@@ -58,15 +58,17 @@ process: Stop, then Start with nothing ticked, and the service is plain again.
 A model switch restarts a service with the same flags. A service started in a
 terminal shows no badges (the lab cannot see its environment).
 
-| Env var | Default | Meaning |
-| --- | --- | --- |
-| `LAB_PORT` | `8010` | where the lab listens |
+| Env var             | Default               | Meaning                                                                  |
+| ------------------- | --------------------- | ------------------------------------------------------------------------ |
+| `LAB_PORT`          | `8010`                | where the lab listens                                                    |
 | `LAB_SERVICE_PORTS` | `8000,8002,8003,8004` | ports probed for checkpoint services (identified by their FastAPI title) |
-| `LAB_HAIKU_MODEL` | `claude-haiku-4-5` | the model id behind **Claude Haiku** in the model picker |
-| `LAB_SONNET_MODEL` | `claude-sonnet-5` | the model id behind **Claude Sonnet** in the model picker |
+| `LAB_HAIKU_MODEL`   | `claude-haiku-4-5`    | the model id behind **Claude Haiku** in the model picker                 |
+| `LAB_SONNET_MODEL`  | `claude-sonnet-5`     | the model id behind **Claude Sonnet** in the model picker                |
 
 **Model picker** (top bar): **GPT** (your Azure or OpenAI config from `.env`),
-**Claude Haiku** or **Claude Sonnet** (need `ANTHROPIC_API_KEY`). The lab never
+**Claude Haiku** or **Claude Sonnet** (need `ANTHROPIC_API_KEY`). With
+`LLM_PROVIDER` set to gemini, openrouter, ollama or lmstudio
+(see `LLM_PROVIDERS.md`), the first entry is that provider instead of GPT. The lab never
 edits `.env`: it passes `LLM_PROVIDER` / `ANTHROPIC_MODEL` to the processes it
 starts, and the checkpoints' `load_dotenv()` leaves variables that are already
 set alone. Runners use the new model on the next run; services the lab started
@@ -90,10 +92,10 @@ The page is built for projecting:
   checkpoint (five cards, each with a one-line summary and its status),
   3 run. The cost of the run is shown next to the button before you press it.
 - **One headline per run.** The first thing on screen is a sentence a
-  student can read aloud: *“Refund of $48.50 issued on order O-77201 (total
+  student can read aloud: _“Refund of $48.50 issued on order O-77201 (total
   $64.50), under the $50 auto-approve limit. Delivered 21 days ago, where the
   14-day and 30-day windows disagree: both sections were retrieved and the
-  prompt says to escalate, but the model refunded anyway.”* That last
+  prompt says to escalate, but the model refunded anyway.”_ That last
   sentence appears only when it is true: both window sections retrieved, the
   plan refunds without escalating, and the order's `delivered_at` puts the
   ticket more than 14 and at most 30 days after delivery. Inside 14 days the
@@ -127,24 +129,24 @@ The page is built for projecting:
   and what Approve and Reject will each do. All of it comes from the
   `approval.required` event; the final report repeats it.
 - **Follow a request ID.** With 02, 03 or 04 picked, the Run view has an
-  *or follow a request ID* box: paste a `request_id` (or click one of the
-  *recent* ones this lab submitted, which survive an F5) and press **Follow**.
+  _or follow a request ID_ box: paste a `request_id` (or click one of the
+  _recent_ ones this lab submitted, which survive an F5) and press **Follow**.
   The lab reads `GET /runs/{id}`, then replays `/runs/{id}/events` from
   event 0 and renders the run as if it had started here: status, pipeline,
   the approval card if the gate is still open, the reply, the report. Nothing
   is submitted. Use it after an F5, a lab restart, or for a run sent with curl.
 - **The service went down.** If a service dies or restarts mid-run (crash
   after refund, Stop, the kill-switch restart), the run does not error: the
-  headline turns orange, *service down · reconnecting*, and the lab retries
+  headline turns orange, _service down · reconnecting_, and the lab retries
   for 60 seconds. Start the service again in Setup and the run continues from
   the last event it saw (`Last-Event-ID`). After 60 seconds it gives up, and
   the request id is waiting in the Follow box.
-- **Your own ticket, with a sender.** *Write your own ticket* has an optional
+- **Your own ticket, with a sender.** _Write your own ticket_ has an optional
   **From** field. 02–04 receive it as `customer_name` next to `ticket_text`,
   so the order-ownership rule runs on free text; left empty, the key is not
   sent and the rule is skipped, as before. 00 and 01 ignore it. Works in Run,
   Compare and Repeat.
-- **Search only (03).** With 03 picked, *or search the policy index only*
+- **Search only (03).** With 03 picked, _or search the policy index only_
   runs checkpoint 03's own `retrieve.retrieve()` on a bare query (one
   embedding call, no triage, no planner) and shows the top sections with
   scores and their text. The 03 service holds the index while it runs, so the
@@ -176,7 +178,7 @@ approved the refund, was it validated, is it grounded in policy, did the
 guard trip, what did it cost. 00 answers most rows with “none”.
 
 **Repeat** — one ticket N times on one checkpoint, with the outcomes diffed
-(incident #8: *same ticket, different resolutions*). Three runs at a time;
+(incident #8: _same ticket, different resolutions_). Three runs at a time;
 you confirm the cost first.
 
 **Incidents** — the ten-problem list from the Session 1 scoreboard. Each
@@ -185,15 +187,15 @@ or on the checkpoint that retires it. A good way to open a session.
 
 ### Tickets worth projecting
 
-| Ticket | Why |
-| --- | --- |
+| Ticket                      | Why                                                                                                                                                                                          |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Incident C (Session 1 demo) | 00 believes the customer and “issues” a $249.99 refund on a $24.99 Final Sale order; 02 looks the order up, sees an ask above the total and escalates it to a person instead of shrinking it |
-| T-1001 | the capstone headphones ticket: a replacement, so 02–04 pause at the approval gate |
-| T-1010, T-1026 | the planted policy contradiction: order O-77201 was delivered 21 days ago, between the two windows; 03 retrieves both and tends to refund anyway (README “Try this” #1) |
-| T-1004 | a $45 refund with no gate: the crash-after-refund demo (start 02 with the flag, run it, start 02 again plain) |
-| T-1006, T-1018, T-1025 | injection: 04 stops them at the input guard; 00 does whatever they say |
-| T-1011, T-1022, T-1030 | no order reference: rule 1 forbids a refund |
-| T-1017, T-1024, T-1031 | nine-message threads: watch the prompt size on 00 |
+| T-1001                      | the capstone headphones ticket: a replacement, so 02–04 pause at the approval gate                                                                                                           |
+| T-1010, T-1026              | the planted policy contradiction: order O-77201 was delivered 21 days ago, between the two windows; 03 retrieves both and tends to refund anyway (README “Try this” #1)                      |
+| T-1004                      | a $45 refund with no gate: the crash-after-refund demo (start 02 with the flag, run it, start 02 again plain)                                                                                |
+| T-1006, T-1018, T-1025      | injection: 04 stops them at the input guard; 00 does whatever they say                                                                                                                       |
+| T-1011, T-1022, T-1030      | no order reference: rule 1 forbids a refund                                                                                                                                                  |
+| T-1017, T-1024, T-1031      | nine-message threads: watch the prompt size on 00                                                                                                                                            |
 
 ## What it costs
 
@@ -202,12 +204,12 @@ cost, and the header keeps a running total for the page. Compare and Repeat
 always open a confirmation dialog with an estimate before they spend
 anything. Rough figures on `gpt-4.1-mini`:
 
-| Run | Cost |
-| --- | --- |
-| checkpoint 00, one ticket (1–3 calls, ~2,400 prompt tokens each) | ~$0.001–0.004 |
-| checkpoint 01, one ticket (1–2 calls) | ~$0.0002–0.0004 |
-| checkpoints 02–04, one ticket (triage + plan + reply, up to 2 repairs) | ~$0.001–0.003 |
-| Repeat 00 × 5 | ~$0.02 |
+| Run                                                                    | Cost            |
+| ---------------------------------------------------------------------- | --------------- |
+| checkpoint 00, one ticket (1–3 calls, ~2,400 prompt tokens each)       | ~$0.001–0.004   |
+| checkpoint 01, one ticket (1–2 calls)                                  | ~$0.0002–0.0004 |
+| checkpoints 02–04, one ticket (triage + plan + reply, up to 2 repairs) | ~$0.001–0.003   |
+| Repeat 00 × 5                                                          | ~$0.02          |
 
 Checkpoint 00 has no price table (that's one of its lessons), so its calls are
 priced with checkpoint 01's `PRICE_TABLE`. Checkpoints 02–04 price their own
@@ -220,6 +222,17 @@ Each checkpoint has its own `llm.py`, `models.py`, `errors.py`, and so on,
 all with the same module names, so two checkpoints are never imported into
 one process. The runner reads one JSON request on stdin and streams NDJSON
 events back; anything the checkpoint prints is captured and forwarded.
+
+Every run gets a fresh process, but not a cold one. Importing the provider
+SDKs takes seconds (2–3 s on a Windows laptop with Defender scanning each
+file), so the lab keeps the next runner started: it has
+imported only the third-party packages in its `PRELOAD` list and waits on
+stdin. A run takes it and a replacement starts behind it (up to three while
+Repeat or Compare has runs in flight). The checkpoint's own modules and
+`.env` still load after the request arrives, so an edited checkpoint or a new
+model pick takes effect on the next run. The headline's **startup** stat says
+`pre-loaded`, or how long a cold start made the run wait; **wall time** never
+includes it.
 
 - `runners/cp00.py` imports `bot` unmodified and calls `bot.main()` with
   `sys.argv = ["bot.py", ticket]`. `bot.client` is swapped for a proxy that
@@ -260,7 +273,7 @@ registry, not copied.
 Lab runs write to the checkpoints' real logs and databases, so the grep
 commands the lab shows work in the terminal afterwards.
 
-**Secrets.** `/api/health` reports whether a key is *set*, never its value.
+**Secrets.** `/api/health` reports whether a key is _set_, never its value.
 Anything a runner or a managed service prints is scrubbed of every `.env`
 value whose name contains KEY, SECRET, TOKEN or PASSWORD before it reaches
 the browser.
@@ -298,27 +311,27 @@ Select-String -Path checkpoints\02-service\logs\runs.jsonl -SimpleMatch '<reques
 
 The UI is one client. Everything it does, `curl` can do:
 
-| Endpoint | Purpose |
-| --- | --- |
-| `GET /api/health` | LLM config (names only), mock API, services + start commands |
-| `GET /api/tickets` | dataset + Session 1 demos + checkpoint catalogue (with node lists) |
-| `GET /api/incidents` | the incident board |
-| `POST /api/run` `{checkpoint, ticket_id \| incident \| text, customer_name?, inject_truncate?, approval?}` | one run → NDJSON stream: `start`, then runner events (00/01) or `request_id`, `sse`, `approval.waiting`, `approval.decided`, `service.down`, `service.up` (02–04), then `trace` |
-| `POST /api/follow` `{checkpoint, request_id}` | attach to an existing 02–04 run: the same stream, replayed from event 0 |
-| `GET /api/follow/recent` | request ids this lab server submitted, newest first |
-| `POST /api/search` `{query, k?, doc_ids?}` | checkpoint 03's `retrieve()` on a bare query; `doc_ids` is its filter inside the search, and the reply then carries `unfiltered` too; `{ok: false, code: "service_running"}` while the 03 service holds the index |
-| `POST /api/distance` `{phrases: [2..4]}` | cosine similarity of every pair, through 03's `llm.embed_texts` (one call, no index) |
-| `POST /api/map` `{query?}` | every section's vector on two PCA axes, plus the query's point and real top-k; same lock rule as search |
-| `GET /api/policy-docs` | the `doc_id`s in `shared/policies` (for the "only" picker) |
-| `POST /api/runs/{run_id}/approve` `{approved}` | answer a paused 02–04 run |
-| `POST /api/estimate` `{checkpoints, runs, ticket…}` | cost range for the confirm dialog + the repeat-loop command |
-| `GET /api/runs/{run_id}` | a finished trace (the UI's `#run/<id>` links; memory only, lost on restart) |
-| `GET /api/cites/{checkpoint}` | resolved `file:line` citations |
-| `POST /api/model` `{choice: gpt \| haiku \| sonnet}` | switch the model; restarts the services the lab started |
-| `POST /api/services/{02\|03\|04\|mock}/start` `{runtime?, chaos?, crash_after_refund?, kill_switch?, budget_usd?}` | start a service (02: `plain` or `langgraph`) with whitelisted flags; builds the policy index first if missing |
-| `GET /api/services/flags` | which flags each service offers (read from the code) |
-| `POST /api/services/{name}/stop` | stop a service (one started in a terminal too, if the port serves the expected app) |
-| `GET /api/services/{name}/log` | the last lines a managed service printed |
+| Endpoint                                                                                                           | Purpose                                                                                                                                                                                                           |
+| ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/health`                                                                                                  | LLM config (names only), mock API, services + start commands                                                                                                                                                      |
+| `GET /api/tickets`                                                                                                 | dataset + Session 1 demos + checkpoint catalogue (with node lists)                                                                                                                                                |
+| `GET /api/incidents`                                                                                               | the incident board                                                                                                                                                                                                |
+| `POST /api/run` `{checkpoint, ticket_id \| incident \| text, customer_name?, inject_truncate?, approval?}`         | one run → NDJSON stream: `start`, then runner events (00/01) or `request_id`, `sse`, `approval.waiting`, `approval.decided`, `service.down`, `service.up` (02–04), then `trace`                                   |
+| `POST /api/follow` `{checkpoint, request_id}`                                                                      | attach to an existing 02–04 run: the same stream, replayed from event 0                                                                                                                                           |
+| `GET /api/follow/recent`                                                                                           | request ids this lab server submitted, newest first                                                                                                                                                               |
+| `POST /api/search` `{query, k?, doc_ids?}`                                                                         | checkpoint 03's `retrieve()` on a bare query; `doc_ids` is its filter inside the search, and the reply then carries `unfiltered` too; `{ok: false, code: "service_running"}` while the 03 service holds the index |
+| `POST /api/distance` `{phrases: [2..4]}`                                                                           | cosine similarity of every pair, through 03's `llm.embed_texts` (one call, no index)                                                                                                                              |
+| `POST /api/map` `{query?}`                                                                                         | every section's vector on two PCA axes, plus the query's point and real top-k; same lock rule as search                                                                                                           |
+| `GET /api/policy-docs`                                                                                             | the `doc_id`s in `shared/policies` (for the "only" picker)                                                                                                                                                        |
+| `POST /api/runs/{run_id}/approve` `{approved}`                                                                     | answer a paused 02–04 run                                                                                                                                                                                         |
+| `POST /api/estimate` `{checkpoints, runs, ticket…}`                                                                | cost range for the confirm dialog + the repeat-loop command                                                                                                                                                       |
+| `GET /api/runs/{run_id}`                                                                                           | a finished trace (the UI's `#run/<id>` links; memory only, lost on restart)                                                                                                                                       |
+| `GET /api/cites/{checkpoint}`                                                                                      | resolved `file:line` citations                                                                                                                                                                                    |
+| `POST /api/model` `{choice: gpt \| haiku \| sonnet}`                                                               | switch the model; restarts the services the lab started                                                                                                                                                           |
+| `POST /api/services/{02\|03\|04\|mock}/start` `{runtime?, chaos?, crash_after_refund?, kill_switch?, budget_usd?}` | start a service (02: `plain` or `langgraph`) with whitelisted flags; builds the policy index first if missing                                                                                                     |
+| `GET /api/services/flags`                                                                                          | which flags each service offers (read from the code)                                                                                                                                                              |
+| `POST /api/services/{name}/stop`                                                                                   | stop a service (one started in a terminal too, if the port serves the expected app)                                                                                                                               |
+| `GET /api/services/{name}/log`                                                                                     | the last lines a managed service printed                                                                                                                                                                          |
 
 ```powershell
 # One NDJSON line per event; the last one is the trace. Works in PowerShell 5.1 and 7.

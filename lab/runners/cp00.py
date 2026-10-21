@@ -15,6 +15,7 @@ reports is recorded around it:
 
 Request (stdin): {"mode": "run", "ticket_text": "..."} or {"mode": "list"}.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -27,6 +28,9 @@ import traceback
 from pathlib import Path
 
 import labproto
+
+# Third-party packages bot.py imports, loaded while the runner waits warm (labproto.preload).
+PRELOAD = ("openai", "dotenv")
 
 _MISSING = object()  # "resolve() never returned", as distinct from returning None
 
@@ -63,8 +67,16 @@ def run(req: dict, ch: labproto.Channel, cap: labproto.CapturedStdout) -> None:
         # bot.py builds its client from .env at import time, so a bad .env can fail here.
         import bot
     except BaseException:
-        ch.emit("trace", checkpoint="00", outcome="crashed", crash=traceback.format_exc(),
-                attempts=[], stdout=cap.text(), duration_ms=0)
+        ch.emit(
+            "trace",
+            checkpoint="00",
+            outcome="crashed",
+            crash=traceback.format_exc(),
+            attempts=[],
+            stdout=cap.text(),
+            duration_ms=0,
+            startup=labproto.startup(),
+        )
         return
 
     attempts: list[dict] = []  # one record per provider call, in order
@@ -136,15 +148,23 @@ def run(req: dict, ch: labproto.Channel, cap: labproto.CapturedStdout) -> None:
                 "_t0": time.perf_counter(),
             }
             if not attempts:
-                first_prompt.update(text=prompt_text, sha256=rec["sha256"], messages=len(messages))
+                first_prompt.update(
+                    text=prompt_text, sha256=rec["sha256"], messages=len(messages)
+                )
                 rec["identical_to_first"] = True
             else:
                 rec["identical_to_first"] = rec["sha256"] == attempts[0]["sha256"]
-                if not rec["identical_to_first"]:  # keep a retry's prompt only when it changed
+                if not rec[
+                    "identical_to_first"
+                ]:  # keep a retry's prompt only when it changed
                     rec["prompt_text"] = prompt_text
             attempts.append(rec)
-            ch.emit("attempt.started", n=rec["n"], sha256=rec["sha256"],
-                    identical_to_first=rec["identical_to_first"])
+            ch.emit(
+                "attempt.started",
+                n=rec["n"],
+                sha256=rec["sha256"],
+                identical_to_first=rec["identical_to_first"],
+            )
 
             # The one change to the request, recorded in lab_added so the trace says so.
             sent = dict(kwargs)
@@ -181,7 +201,8 @@ def run(req: dict, ch: labproto.Channel, cap: labproto.CapturedStdout) -> None:
     source = Path(bot_file).read_text(encoding="utf-8").splitlines()
     # Only lines below `def main`, so a mention earlier in the file doesn't count.
     refund_issued_lines = {
-        i + 1 for i, line in enumerate(source)
+        i + 1
+        for i, line in enumerate(source)
         if "refund issued" in line and i + 1 > main_code.co_firstlineno
     }
     observed: dict = {"returned": _MISSING, "refund_lines_hit": [], "resolve_calls": 0}
@@ -201,15 +222,22 @@ def run(req: dict, ch: labproto.Channel, cap: labproto.CapturedStdout) -> None:
                 "message": str(evalue)[:2000],
                 "file": frame.f_code.co_filename,
                 "line": frame.f_lineno,
-                "code": linecache.getline(frame.f_code.co_filename, frame.f_lineno).strip(),
+                "code": linecache.getline(
+                    frame.f_code.co_filename, frame.f_lineno
+                ).strip(),
                 "raised_in": (
                     f"{Path(inner.tb_frame.f_code.co_filename).name}:{inner.tb_lineno}"
-                    if inner is not None else None
+                    if inner is not None
+                    else None
                 ),
             }
             if attempts:
                 attempts[-1]["exception"] = info
-            ch.emit("attempt.exception", n=attempts[-1]["n"] if attempts else None, exception=info)
+            ch.emit(
+                "attempt.exception",
+                n=attempts[-1]["n"] if attempts else None,
+                exception=info,
+            )
         elif event == "return":
             observed["returned"] = arg
         return trace_resolve
@@ -235,7 +263,10 @@ def run(req: dict, ch: labproto.Channel, cap: labproto.CapturedStdout) -> None:
 
     # --- run bot.main() exactly as `py bot.py "<ticket_text>"` would -----------
     crash = None
-    sys.argv = ["bot.py", ticket_text]  # bot.main() reads the ticket from argv, as on the command line
+    sys.argv = [
+        "bot.py",
+        ticket_text,
+    ]  # bot.main() reads the ticket from argv, as on the command line
     bot.client = _ClientProxy()
     sys.settrace(global_trace)
     try:
@@ -280,7 +311,9 @@ def run(req: dict, ch: labproto.Channel, cap: labproto.CapturedStdout) -> None:
         plan=plan,
         refund={
             "amount": refund_amount,
-            "fired": bool(observed["refund_lines_hit"]) if refund_issued_lines else None,
+            "fired": bool(observed["refund_lines_hit"])
+            if refund_issued_lines
+            else None,
             "line": min(refund_issued_lines) if refund_issued_lines else None,
         },
         crash=crash,
@@ -288,10 +321,12 @@ def run(req: dict, ch: labproto.Channel, cap: labproto.CapturedStdout) -> None:
         bot_file=bot_file,
         resolve_line=resolve_code.co_firstlineno,
         duration_ms=int((time.perf_counter() - started) * 1000),
+        startup=labproto.startup(),
     )
 
 
 def main() -> None:
+    labproto.preload(PRELOAD)
     req = labproto.read_request()
     ch = labproto.Channel()
     labproto.use_checkpoint_dir()

@@ -16,7 +16,10 @@ confidence}` — or fails with a typed error. The mantra:
   structured-output mode — no more `json.loads` and hope. (`models.py`)
 - **One provider boundary.** All LLM calls go through `llm.py`; provider exceptions
   are mapped to taxonomy codes at that boundary and swapping providers touches one
-  file. It also prices every call from `PRICE_TABLE`. (`llm.py`)
+  file. It also prices every call from `PRICE_TABLE`. (`llm.py`) Besides Azure,
+  OpenAI and Anthropic it accepts `gemini`, `openrouter`, `ollama` and `lmstudio`:
+  the same `openai` client at a different `base_url` (`OPENAI_COMPATIBLE`; setup
+  in [LLM_PROVIDERS.md](../../LLM_PROVIDERS.md)).
 - **Bounded repair, not blind retry.** On malformed output: exactly ONE re-prompt
   that includes what was wrong, then a typed `REPAIR_EXHAUSTED` failure. Rate limits
   and timeouts are not "repaired" — they surface with their own codes. (`triage.py`)

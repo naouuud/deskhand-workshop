@@ -1,4 +1,10 @@
-"""Shared offline test fixtures. No live LLM calls, no live HTTP."""
+"""Shared offline test fixtures. No live LLM calls, no live HTTP.
+
+pytest loads a file named conftest.py automatically before running the tests
+next to it. Fixtures defined here are available to every test file in this
+folder without an import.
+"""
+
 import sys
 from pathlib import Path
 
@@ -14,8 +20,11 @@ import obslog  # noqa: E402
 # needs a key or spends money. This file only redirects the log.
 
 
-# autouse: every test gets this without asking for it, so none can forget.
+# A fixture is setup code pytest runs for a test. autouse: every test gets
+# this without asking for it, so none can forget.
 @pytest.fixture(autouse=True)
 def isolate_logs(monkeypatch, tmp_path):
     """Keep test runs from appending to the real logs/runs.jsonl."""
+    # monkeypatch swaps an attribute for the length of one test and puts the
+    # original back afterwards. tmp_path is a fresh empty folder per test.
     monkeypatch.setattr(obslog, "LOG_PATH", tmp_path / "runs.jsonl")

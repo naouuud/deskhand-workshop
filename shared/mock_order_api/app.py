@@ -90,11 +90,6 @@ def _apply_chaos(mode: str) -> None:
         raise HTTPException(500, "chaos: simulated flaky failure")
 
 
-@app.get("/health")
-def check_health() -> str:
-    return "All good."
-
-
 @app.get("/orders/{order_id}")
 def get_order(order_id: str, request: Request) -> dict:
     mode = _chaos_mode(request)

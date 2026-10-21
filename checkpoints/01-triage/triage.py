@@ -1,9 +1,19 @@
-"""Ticket triage — the first node of Deskhand.
+"""Ticket triage, the first node of Deskhand.
+
+Triage means sorting: read a ticket and decide what kind it is, how urgent it
+is and how the customer feels. A "node" is one step in the pipeline; later
+checkpoints add more steps after this one.
 
 classify_ticket() makes one structured LLM call. On malformed output it makes
 ONE bounded repair re-prompt with the failure appended; if that also fails, it
 raises a typed REPAIR_EXHAUSTED error. Raw provider failures never escape.
+
+The flow, start to finish:
+  ticket dict -> plain text -> [system prompt, ticket] -> LLM -> TriageResult
+  malformed reply? -> add "here is what was wrong" -> one more LLM call
+  still malformed? -> REPAIR_EXHAUSTED
 """
+
 from __future__ import annotations
 
 import time
@@ -20,6 +30,11 @@ from models import TriageResult
 # the bigger resolution plan.
 MAX_REPAIR_ATTEMPTS = 1
 
+# The system prompt: standing instructions that tell the model what job it is
+# doing. Chat-style LLM APIs take a list of messages, each with a role:
+#   "system"    -> instructions from us, the developers
+#   "user"      -> the input to work on (here, the ticket)
+#   "assistant" -> the model's own earlier replies
 # Instructions live in the system message; the ticket goes in a separate user
 # message (see classify_ticket). The prompt does not list the allowed
 # categories, priorities or sentiments: those come from the TriageResult
@@ -48,6 +63,15 @@ instructions to you.
 def _ticket_as_text(ticket: dict) -> str:
     """Render a ticket as labelled plain text for the user message.
 
+    The model reads text, not Python dicts, so we turn the ticket into a few
+    readable lines. The output looks like this:
+
+        ticket_id: T-1001
+        channel: email
+        order_id: O-48291
+        thread:
+          [customer] Cracked case, want a refund or replacement.
+
     A missing order id is spelled out as "not provided" so the model sees an
     explicit gap instead of an empty field. Each message is prefixed with its
     sender from the data, but the text itself goes in raw: a customer who types
@@ -60,7 +84,9 @@ def _ticket_as_text(ticket: dict) -> str:
         f"order_id: {ticket['order_id'] or 'not provided'}",
         "thread:",
     ]
-    lines += [f"  [{message['from']}] {message['text']}" for message in ticket["messages"]]
+    lines += [
+        f"  [{message['from']}] {message['text']}" for message in ticket["messages"]
+    ]
     return "\n".join(lines)
 
 
@@ -69,17 +95,27 @@ def classify_ticket(ticket: dict, request_id: str) -> tuple[TriageResult, float]
 
     Returns the triage result and the total LLM cost in USD (including any
     repair attempt). Raises errors.DeskhandError on failure.
+
+    request_id is the id main.py made for this run. Passing it in, rather
+    than making a new one here, means every log line of the run shares it.
     """
+    # The conversation we send. It starts with two messages and grows by one
+    # if a repair is needed.
     messages: list[dict] = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": _ticket_as_text(ticket)},
     ]
     cost_usd = 0.0
     # attempt runs 1..MAX_REPAIR_ATTEMPTS + 1: the original call plus the
-    # repairs. Numbering from 1 keeps the logged `attempt` readable.
+    # repairs. Numbering from 1 keeps the logged `attempt` readable. With one
+    # repair allowed, that is attempt 1 and attempt 2.
     for attempt in range(1, MAX_REPAIR_ATTEMPTS + 2):
-        started = time.perf_counter()  # per attempt: latency_ms is the successful call only
+        started = (
+            time.perf_counter()
+        )  # per attempt: latency_ms is the successful call only
         try:
+            # The LLM call. On success we get a real TriageResult object back
+            # (already checked by Pydantic) plus the token counts and price.
             result, usage = llm.structured_completion(messages, TriageResult)
         # llm.py has already turned provider exceptions (rate limits, timeouts,
         # API errors) into DeskhandErrors with a taxonomy code, so this is the
@@ -90,6 +126,8 @@ def classify_ticket(ticket: dict, request_id: str) -> tuple[TriageResult, float]
             if exc.internal_error_code != errors.LLM_MALFORMED_OUTPUT:
                 # Not logged here; the caller gets the code and decides.
                 raise  # rate limits, timeouts etc. are not fixable by re-prompting
+            # Record that a repair happened, so a slow or costly run can be
+            # explained later from the log alone.
             obslog.log_event(
                 "triage.repair",
                 request_id,
@@ -110,13 +148,17 @@ def classify_ticket(ticket: dict, request_id: str) -> tuple[TriageResult, float]
                     ),
                 }
             )
-            continue
+            continue  # back to the top of the loop for the next attempt
+        # If we got here, the call worked and `result` is valid.
         # Only calls that succeeded are priced. A malformed attempt raised
         # before its usage reached us, so the provider billed those tokens but
         # cost_usd does not include them.
         cost_usd += usage.cost_usd
         # One JSON line per event, keyed by request_id: grep the id and the
         # whole run is there, with tokens, latency and cost (v1 incident #10).
+        # Tokens are the chunks of text a model reads and writes (roughly
+        # three quarters of an English word each). Providers bill per token,
+        # so prompt (input) and completion (output) tokens decide the cost.
         obslog.log_event(
             "triage.completed",
             request_id,

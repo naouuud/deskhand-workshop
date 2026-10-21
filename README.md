@@ -16,12 +16,13 @@ more items from the v1 incident list in the capstone brief.
 
 This repo grows after each session, so it never shows you more than you need yet. Run `git pull` after class to get the latest.
 
-| Arrived | What came in |
-| --- | --- |
-| Sun Oct 18 | Setup files, the shared data (tickets, policies, mock order API), checkpoint 00-broken-bot |
-| Mon Oct 19 | Session 1 slides and handout, checkpoint 01-triage, the lab (lab/) |
+| Arrived    | What came in                                                                                        |
+| ---------- | --------------------------------------------------------------------------------------------------- |
+| Sun Oct 18 | Setup files, the shared data (tickets, policies, mock order API), checkpoint 00-broken-bot          |
+| Mon Oct 19 | Session 1 slides and handout, checkpoint 01-triage, the lab (lab/)                                  |
+| Wed Oct 21 | Session 2 slides and handout, the Session 1 measuring script, free LLM providers (LLM_PROVIDERS.md) |
 
-Next update: Wed Oct 21, after class.
+Next update: Fri Oct 23, after class.
 
 ## Repo map
 
@@ -68,9 +69,11 @@ Copy `.env.example` to `.env` and fill in one provider block:
 # macOS/Linux:  cp .env.example .env
 ```
 
-`LLM_PROVIDER` chooses which block is used — `azure` (Azure OpenAI), `openai`, or
+`LLM_PROVIDER` chooses which block is used — `azure` (Azure OpenAI), `openai`,
 `anthropic` (Claude; it has no embeddings API, so checkpoints 03 and 04 also need
-`EMBEDDING_PROVIDER` set to `openai` or `azure`).
+`EMBEDDING_PROVIDER` set to another provider), `gemini`, `openrouter`, or the two that
+run on your own laptop, `ollama` and `lmstudio`. [LLM_PROVIDERS.md](LLM_PROVIDERS.md)
+sets up each one, including the free options.
 On Azure, every `model=` in the code is a **deployment name**, not a model name:
 set `AZURE_OPENAI_DEPLOYMENT` for chat and `AZURE_OPENAI_EMBEDDING_DEPLOYMENT`
 (a second, separate deployment) for the RAG index from checkpoint 03 on.
@@ -83,16 +86,16 @@ chat models and the rest of the checkpoint never sees a provider.
 The repo builds each thing bare first, then shows what a framework does for you. Week 1
 is framework-free on purpose.
 
-| Framework | Enters at | Used for | Still yours |
-| --- | --- | --- | --- |
-| LangChain (core, openai, anthropic) | 02 | chat models, structured output, the two tools (`@tool`) | pricing, the error taxonomy, what counts as malformed output |
-| LangGraph | 02 (opt-in), 03+ (only runtime) | the graph runtime: `Command`, `interrupt()`, SQLite checkpoints | the nodes, the business rules, idempotency keys, the event log behind SSE |
-| LangChain text splitters + Qdrant store | 03 | `##` section chunks, the local vector store | the policy header, stable ids, the embedding bill (tiktoken) |
-| RAGAS | 03 | context precision / recall by section id, faithfulness of the rationale | the `reference_contexts` labels, which inputs the judge sees |
-| DeepEval | 04 | the golden set as pytest (`assert_test`), three strict `GEval` judge metrics | the five checks, the thresholds, the release decision |
-| LangSmith | 04 | one trace per run, found by `request_id`, with no code change | `logs/runs.jsonl` and `dashboard.py` |
-| LangChain prebuilt agent | 02, `agent_demo.py` only | showing what Deskhand deliberately is not | the decision to stay a workflow |
-| LangGraph, as an agent loop | 02, `agent_bounded.py` only | the same loop with a step budget, an `interrupt()` gate before every write, and a derived idempotency key | the three layers; which tool runs next stays the model's call |
+| Framework                               | Enters at                       | Used for                                                                                                  | Still yours                                                               |
+| --------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| LangChain (core, openai, anthropic)     | 02                              | chat models, structured output, the two tools (`@tool`)                                                   | pricing, the error taxonomy, what counts as malformed output              |
+| LangGraph                               | 02 (opt-in), 03+ (only runtime) | the graph runtime: `Command`, `interrupt()`, SQLite checkpoints                                           | the nodes, the business rules, idempotency keys, the event log behind SSE |
+| LangChain text splitters + Qdrant store | 03                              | `##` section chunks, the local vector store                                                               | the policy header, stable ids, the embedding bill (tiktoken)              |
+| RAGAS                                   | 03                              | context precision / recall by section id, faithfulness of the rationale                                   | the `reference_contexts` labels, which inputs the judge sees              |
+| DeepEval                                | 04                              | the golden set as pytest (`assert_test`), three strict `GEval` judge metrics                              | the five checks, the thresholds, the release decision                     |
+| LangSmith                               | 04                              | one trace per run, found by `request_id`, with no code change                                             | `logs/runs.jsonl` and `dashboard.py`                                      |
+| LangChain prebuilt agent                | 02, `agent_demo.py` only        | showing what Deskhand deliberately is not                                                                 | the decision to stay a workflow                                           |
+| LangGraph, as an agent loop             | 02, `agent_bounded.py` only     | the same loop with a step budget, an `interrupt()` gate before every write, and a derived idempotency key | the three layers; which tool runs next stays the model's call             |
 
 Use the frameworks narrowly: no chains, prompt templates or runnables beyond what the
 rows above need. Deskhand is a fixed graph. Code decides when a tool runs; the model
@@ -126,13 +129,13 @@ git diff --no-index checkpoints/01-triage checkpoints/02-service
 Each checkpoint's README states what it demonstrates, which sessions it maps to, what
 changed vs the previous checkpoint, how to run it, and a few "try this" exercises.
 
-| Checkpoint | Sessions | What you get |
-| --- | --- | --- |
-| [00-broken-bot](checkpoints/00-broken-bot/) | 1 | Deskhand v1: one giant prompt, `json.loads` and hope. Violates every convention in this repo — deliberately. |
-| [01-triage](checkpoints/01-triage/) | 2–3 | Typed `TriageResult`, structured outputs, one bounded repair re-prompt, JSONL logging with request IDs, offline tests. |
-| [02-service](checkpoints/02-service/) | 4–6 | FastAPI service: `TicketResolutionState` node runner, SQLite persistence, SSE streaming, human approval gate. The provider boundary moves onto LangChain chat models, and the order-lookup and idempotent refund calls become LangChain tools. Two runtimes for the same nodes: the hand-written `graph.py` (Session 4) and LangGraph's `graph_lg.py` (Session 5 lab). `agent_demo.py` hands the same tools to LangChain's prebuilt agent, to show why Deskhand isn't one; `agent_bounded.py` puts the budget, the gate and the derived key back around that loop. |
-| [03-rag](checkpoints/03-rag/) | 7–9 | LangGraph is the only runtime. Policy ingestion with LangChain's `##` splitter into a local Qdrant store, retrieval node, plans must cite policy, the planted contradiction (and the measurement that a prompt is not a guard), 20-ticket golden set with `reference_contexts`, RAGAS retrieval metrics. |
-| [04-production](checkpoints/04-production/) | 10–12 | The golden set as a DeepEval test file and a rate-based release gate, three strict `GEval` judge metrics, LangSmith tracing by `request_id`, injection guardrails, budget caps + model routing, cost/latency dashboard, chaos lab guide. |
+| Checkpoint                                  | Sessions | What you get                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [00-broken-bot](checkpoints/00-broken-bot/) | 1        | Deskhand v1: one giant prompt, `json.loads` and hope. Violates every convention in this repo — deliberately.                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| [01-triage](checkpoints/01-triage/)         | 2–3      | Typed `TriageResult`, structured outputs, one bounded repair re-prompt, JSONL logging with request IDs, offline tests.                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| [02-service](checkpoints/02-service/)       | 4–6      | FastAPI service: `TicketResolutionState` node runner, SQLite persistence, SSE streaming, human approval gate. The provider boundary moves onto LangChain chat models, and the order-lookup and idempotent refund calls become LangChain tools. Two runtimes for the same nodes: the hand-written `graph.py` (Session 4) and LangGraph's `graph_lg.py` (Session 5 lab). `agent_demo.py` hands the same tools to LangChain's prebuilt agent, to show why Deskhand isn't one; `agent_bounded.py` puts the budget, the gate and the derived key back around that loop. |
+| [03-rag](checkpoints/03-rag/)               | 7–9      | LangGraph is the only runtime. Policy ingestion with LangChain's `##` splitter into a local Qdrant store, retrieval node, plans must cite policy, the planted contradiction (and the measurement that a prompt is not a guard), 20-ticket golden set with `reference_contexts`, RAGAS retrieval metrics.                                                                                                                                                                                                                                                           |
+| [04-production](checkpoints/04-production/) | 10–12    | The golden set as a DeepEval test file and a rate-based release gate, three strict `GEval` judge metrics, LangSmith tracing by `request_id`, injection guardrails, budget caps + model routing, cost/latency dashboard, chaos lab guide.                                                                                                                                                                                                                                                                                                                           |
 
 ## Shared data notes
 

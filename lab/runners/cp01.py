@@ -24,6 +24,7 @@ same idea as the checkpoint's own tests, which monkeypatch llm.
 Request (stdin): {"mode": "run", "ticket": {...}, "inject": {...}}
              or  {"mode": "quote", "models": ["gpt-4.1-mini"]}   (pricing only)
 """
+
 from __future__ import annotations
 
 import copy
@@ -38,7 +39,29 @@ from pathlib import Path
 
 import labproto
 
-INJECTED_MAX_TOKENS = 5  # too few for any TriageResult: the provider stops with finish_reason "length"
+# Third-party packages 01's modules import, loaded while the runner waits warm
+# (labproto.preload). llm.py imports anthropic only on the Anthropic path, so
+# preload_list() adds it only when this runner will call Claude.
+PRELOAD = ("openai", "pydantic", "dotenv", "rich.console", "rich.table")
+
+
+def preload_list() -> tuple[str, ...]:
+    """PRELOAD, plus anthropic when LLM_PROVIDER says so: the lab's model
+    picker sets it in the env, else it comes from the repo .env (the file
+    llm.py's load_dotenv() finds, two folders up from the cwd)."""
+    from dotenv import dotenv_values
+
+    provider = os.environ.get("LLM_PROVIDER") or dotenv_values(
+        Path.cwd().parents[1] / ".env"
+    ).get("LLM_PROVIDER")
+    return PRELOAD + (
+        ("anthropic",) if (provider or "").strip().lower() == "anthropic" else ()
+    )
+
+
+INJECTED_MAX_TOKENS = (
+    5  # too few for any TriageResult: the provider stops with finish_reason "length"
+)
 
 
 def quote(req: dict, ch: labproto.Channel) -> None:
@@ -74,8 +97,13 @@ def run(req: dict, ch: labproto.Channel, cap: labproto.CapturedStdout) -> None:
 
     calls: list[dict] = []
     attempts: list[dict] = []
-    observed: dict = {"request_id": None, "result": None, "reported_cost_usd": None,
-                      "error": None, "user_message": None}
+    observed: dict = {
+        "request_id": None,
+        "result": None,
+        "reported_cost_usd": None,
+        "error": None,
+        "user_message": None,
+    }
 
     # --- provider proxy -------------------------------------------------------
     # llm._client() builds (and caches) the SDK client. Every call in llm.py
@@ -101,7 +129,9 @@ def run(req: dict, ch: labproto.Channel, cap: labproto.CapturedStdout) -> None:
             sent = dict(kwargs)
             if call["n"] <= truncate_attempts:
                 sent["max_tokens"] = INJECTED_MAX_TOKENS
-                call["injected"] = f"max_tokens={INJECTED_MAX_TOKENS} (lab fault injection)"
+                call["injected"] = (
+                    f"max_tokens={INJECTED_MAX_TOKENS} (lab fault injection)"
+                )
             calls.append(call)
             ch.emit("attempt.started", n=call["n"], injected=call["injected"])
             t0 = time.perf_counter()
@@ -109,7 +139,9 @@ def run(req: dict, ch: labproto.Channel, cap: labproto.CapturedStdout) -> None:
                 response = real_client_factory().beta.chat.completions.parse(**sent)
             except BaseException as exc:
                 # Record what came back even on failure: a truncated reply is the evidence.
-                completion = getattr(exc, "completion", None)  # LengthFinishReasonError carries it
+                completion = getattr(
+                    exc, "completion", None
+                )  # LengthFinishReasonError carries it
                 if completion is not None:
                     choice = completion.choices[0]
                     call["raw"] = choice.message.content
@@ -128,7 +160,9 @@ def run(req: dict, ch: labproto.Channel, cap: labproto.CapturedStdout) -> None:
                 call["latency_ms"] = int((time.perf_counter() - t0) * 1000)
                 if call["usage"]:
                     call["cost_usd"] = llm._cost_usd(
-                        call["model"], call["usage"]["prompt_tokens"], call["usage"]["completion_tokens"]
+                        call["model"],
+                        call["usage"]["prompt_tokens"],
+                        call["usage"]["completion_tokens"],
                     )
 
     class _Beta:
@@ -154,8 +188,12 @@ def run(req: dict, ch: labproto.Channel, cap: labproto.CapturedStdout) -> None:
 
     def structured_completion(messages, response_model, *args, **kwargs):
         """One repair-loop attempt: the messages it sent and the DeskhandError it raised, if any."""
-        attempt = {"n": len(attempts) + 1, "messages": copy.deepcopy(messages),
-                   "call": len(calls) + 1, "error": None}
+        attempt = {
+            "n": len(attempts) + 1,
+            "messages": copy.deepcopy(messages),
+            "call": len(calls) + 1,
+            "error": None,
+        }
         attempts.append(attempt)
         try:
             return real_structured(messages, response_model, *args, **kwargs)
@@ -163,7 +201,10 @@ def run(req: dict, ch: labproto.Channel, cap: labproto.CapturedStdout) -> None:
             attempt["error"] = {"code": exc.internal_error_code, "detail": exc.detail}
             raise
         except BaseException as exc:
-            attempt["error"] = {"code": None, "uncaught": f"{type(exc).__name__}: {exc}"[:2000]}
+            attempt["error"] = {
+                "code": None,
+                "uncaught": f"{type(exc).__name__}: {exc}"[:2000],
+            }
             raise
         finally:
             ch.emit("attempt.finished", n=attempt["n"], error=attempt["error"])
@@ -208,7 +249,9 @@ def run(req: dict, ch: labproto.Channel, cap: labproto.CapturedStdout) -> None:
     triage_main.TICKETS_PATH = tickets_path
 
     log_path = Path(obslog.LOG_PATH)
-    log_offset = log_path.stat().st_size if log_path.exists() else 0  # read back only what this run appends
+    log_offset = (
+        log_path.stat().st_size if log_path.exists() else 0
+    )  # read back only what this run appends
 
     crash = None
     try:
@@ -233,11 +276,13 @@ def run(req: dict, ch: labproto.Channel, cap: labproto.CapturedStdout) -> None:
 
     # Pair each attempt with the provider call it made.
     for attempt in attempts:
-        attempt["provider_call"] = next((c for c in calls if c["n"] == attempt["call"]), None)
+        attempt["provider_call"] = next(
+            (c for c in calls if c["n"] == attempt["call"]), None
+        )
     # What the repair loop appended to the conversation since the previous attempt.
     for i, attempt in enumerate(attempts):
         previous = attempts[i - 1]["messages"] if i else []
-        attempt["added_messages"] = attempt["messages"][len(previous):] if i else []
+        attempt["added_messages"] = attempt["messages"][len(previous) :] if i else []
 
     # billed: summed over every provider call the proxy saw, failed ones included.
     # reported: what classify_ticket() returned. The lab shows both side by side.
@@ -256,23 +301,31 @@ def run(req: dict, ch: labproto.Channel, cap: labproto.CapturedStdout) -> None:
         max_repair_attempts=triage.MAX_REPAIR_ATTEMPTS,
         reported_cost_usd=observed["reported_cost_usd"],
         billed_cost_usd=billed,
-        injected={"truncate_attempts": truncate_attempts} if truncate_attempts else None,
+        injected={"truncate_attempts": truncate_attempts}
+        if truncate_attempts
+        else None,
         schema=models.TriageResult.model_json_schema(),
         log_path=str(log_path),
         log_lines=log_lines,
         crash=crash,
         stdout=cap.text(),
-        outcome="crashed" if crash else ("failed" if observed["error"] else "validated"),
+        outcome="crashed"
+        if crash
+        else ("failed" if observed["error"] else "validated"),
         duration_ms=int((time.perf_counter() - started) * 1000),
+        startup=labproto.startup(),
     )
 
 
 def main() -> None:
+    labproto.preload(preload_list())
     req = labproto.read_request()
     ch = labproto.Channel()
     labproto.use_checkpoint_dir()
     os.environ.setdefault("COLUMNS", "110")  # rich table width when not a TTY
-    cap = labproto.CapturedStdout(ch, live=False)  # main.py's rich table goes in the trace, not streamed
+    cap = labproto.CapturedStdout(
+        ch, live=False
+    )  # main.py's rich table goes in the trace, not streamed
     sys.stdout = cap
     try:
         if req.get("mode") == "quote":

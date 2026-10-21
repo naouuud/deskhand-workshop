@@ -1,8 +1,14 @@
-"""Append-only JSONL observability log — one JSON object per line.
+"""Append-only JSONL observability log, one JSON object per line.
+
+Observability means being able to answer "what happened on that run?" after
+the fact. With an LLM in the loop you need this more than usual: the same
+input can produce a different answer tomorrow, and every call costs money, so
+you want the tokens, latency and cost of each call written down.
 
 Every event carries at least {ts, request_id, event}. No logging frameworks;
 the point is that a failed run is greppable by request_id.
 """
+
 from __future__ import annotations
 
 import json
@@ -16,6 +22,10 @@ LOG_PATH = Path(__file__).resolve().parent / "logs" / "runs.jsonl"
 
 
 def log_event(event: str, request_id: str, **fields: Any) -> None:
+    # Example call: log_event("triage.completed", rid, ticket_id="T-1001",
+    # cost_usd=0.0002). **fields collects those extra keyword arguments into a
+    # dict, so each caller can attach whatever is useful for that event.
+    #
     # One JSON object per line (JSONL): every line stands alone, so grep, jq
     # or a ten-line script can read the file without a parser for the whole.
     record = {

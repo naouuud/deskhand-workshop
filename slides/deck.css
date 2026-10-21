@@ -9,16 +9,16 @@
 
 :root {
   /* surfaces */
-  --bg: #0c1a1d;          /* deep slate */
-  --surface: #13272b;     /* boxes, code */
+  --bg: #0c1a1d; /* deep slate */
+  --surface: #13272b; /* boxes, code */
   --border: #24413f;
   --fg: #eef6f3;
   --muted: #9db5b1;
   --white: #ffffff;
 
   /* brand */
-  --green: #01d294;       /* SE Factory primary green */
-  --teal: #11958a;        /* gradient stop */
+  --green: #01d294; /* SE Factory primary green */
+  --teal: #11958a; /* gradient stop */
   --accent: var(--green);
 
   /* vivid secondaries */
@@ -43,7 +43,8 @@
   --code-fg: #d8fff0;
 
   --grad: linear-gradient(90deg, #01d294 0%, #11958a 100%);
-  --heading-font: "Space Grotesk", "Segoe UI Semibold", "Segoe UI", system-ui, sans-serif;
+  --heading-font:
+    "Space Grotesk", "Segoe UI Semibold", "Segoe UI", system-ui, sans-serif;
 }
 
 /* SVG palette (for diagram authors; these are the hex values to use inline)
@@ -52,16 +53,26 @@
    lime #b4f05a · green tint #0d3029 · blue tint #112a45 · yellow tint #2e2a14
    violet tint #251f3d · coral tint #3a1c1f · dim line #35524f · dim text #6f8f8a */
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
-html, body {
+html,
+body {
   margin: 0;
   padding: 0;
   height: 100%;
   background: var(--bg);
   color: var(--fg);
-  font-family: "Inter", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
-  font-size: 28px;            /* base sized for 1280x720 projection */
+  font-family:
+    "Inter",
+    "Segoe UI",
+    system-ui,
+    -apple-system,
+    "Helvetica Neue",
+    Arial,
+    sans-serif;
+  font-size: 28px; /* base sized for 1280x720 projection */
   line-height: 1.45;
 }
 
@@ -81,9 +92,13 @@ html, body {
   justify-content: flex-start;
   overflow: hidden;
 }
-.slide.current { display: flex; }
+.slide.current {
+  display: flex;
+}
 /* never squeeze a block to fit: a too-full slide must look too full (and get split) */
-.slide > * { flex-shrink: 0; }
+.slide > * {
+  flex-shrink: 0;
+}
 
 /* brand stripe across the top of every content slide */
 .slide:not(.lead)::before {
@@ -108,11 +123,24 @@ html, body {
 }
 
 /* ---- headings ---- */
-h1, h2, h3 { margin: 0 0 0.5em; line-height: 1.15; font-weight: 700; font-family: var(--heading-font); }
-h1 { font-size: 2.3em; }
-h2 { font-size: 1.55em; color: var(--white); }
-h2 .kicker, h3 .kicker {
-  display: table;             /* a pill on its own line, as wide as its text */
+h1,
+h2,
+h3 {
+  margin: 0 0 0.5em;
+  line-height: 1.15;
+  font-weight: 700;
+  font-family: var(--heading-font);
+}
+h1 {
+  font-size: 2.3em;
+}
+h2 {
+  font-size: 1.55em;
+  color: var(--white);
+}
+h2 .kicker,
+h3 .kicker {
+  display: table; /* a pill on its own line, as wide as its text */
   font-family: "Inter", "Segoe UI", system-ui, sans-serif;
   font-size: 0.42em;
   font-weight: 800;
@@ -124,16 +152,38 @@ h2 .kicker, h3 .kicker {
   border-radius: 999px;
   margin-bottom: 0.6em;
 }
-h3 { font-size: 1.15em; color: var(--green); }
+h3 {
+  font-size: 1.15em;
+  color: var(--green);
+}
 
-p { margin: 0.4em 0; }
-ul, ol { margin: 0.4em 0; padding-left: 1.2em; }
-li { margin: 0.38em 0; }
-li::marker { color: var(--green); }
-li > ul { margin: 0.15em 0; }
-strong { color: var(--white); }
-em { color: var(--green); font-style: normal; }
-a { color: var(--blue); }
+p {
+  margin: 0.4em 0;
+}
+ul,
+ol {
+  margin: 0.4em 0;
+  padding-left: 1.2em;
+}
+li {
+  margin: 0.38em 0;
+}
+li::marker {
+  color: var(--green);
+}
+li > ul {
+  margin: 0.15em 0;
+}
+strong {
+  color: var(--white);
+}
+em {
+  color: var(--green);
+  font-style: normal;
+}
+a {
+  color: var(--blue);
+}
 blockquote {
   margin: 0.8em 0;
   padding: 0.5em 1em;
@@ -149,8 +199,16 @@ blockquote {
   justify-content: center;
   text-align: center;
   background:
-    radial-gradient(ellipse 60% 55% at 85% 10%, var(--tint-green) 0%, transparent 70%),
-    radial-gradient(ellipse 55% 50% at 10% 95%, var(--tint-blue) 0%, transparent 70%),
+    radial-gradient(
+      ellipse 60% 55% at 85% 10%,
+      var(--tint-green) 0%,
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 55% 50% at 10% 95%,
+      var(--tint-blue) 0%,
+      transparent 70%
+    ),
     var(--bg);
 }
 .slide.lead h1 {
@@ -167,7 +225,10 @@ blockquote {
   border-radius: 4px;
   background: var(--grad);
 }
-.slide.lead .subtitle { font-size: 1.15em; color: var(--fg); }
+.slide.lead .subtitle {
+  font-size: 1.15em;
+  color: var(--fg);
+}
 .slide.lead .session-meta {
   margin-top: 1.6em;
   font-size: 0.8em;
@@ -181,8 +242,14 @@ blockquote {
    .lab   a hands-on exercise done in class (older decks)
    .home  the same exercise, done at home after a walkthrough session
    .demo  the instructor runs it live and the room predicts first */
-.slide.lab, .slide.home { border-left: 12px solid var(--yellow); }
-.slide.lab h2 .kicker, .slide.home h2 .kicker { background: var(--yellow); }
+.slide.lab,
+.slide.home {
+  border-left: 12px solid var(--yellow);
+}
+.slide.lab h2 .kicker,
+.slide.home h2 .kicker {
+  background: var(--yellow);
+}
 .slide.lab > h2::before,
 .slide.home > h2::before,
 .slide.demo > h2::before,
@@ -198,30 +265,71 @@ blockquote {
   padding: 6px 18px;
   border-radius: 8px;
 }
-.slide.lab > h2::before { content: "LAB"; background: var(--yellow); }
-.slide.home > h2::before { content: "TRY THIS TONIGHT"; background: var(--yellow); }
-.slide.demo { border-left: 12px solid var(--green); }
-.slide.demo > h2::before { content: "LIVE DEMO"; background: var(--green); }
-.slide.check { border-left: 12px solid var(--blue); }
-.slide.check h2 .kicker { background: var(--blue); }
-.slide.check > h2::before { content: "QUICK CHECK"; background: var(--blue); }
+.slide.lab > h2::before {
+  content: "LAB";
+  background: var(--yellow);
+}
+.slide.home > h2::before {
+  content: "TRY THIS TONIGHT";
+  background: var(--yellow);
+}
+.slide.demo {
+  border-left: 12px solid var(--green);
+}
+.slide.demo > h2::before {
+  content: "LIVE DEMO";
+  background: var(--green);
+}
+/* The badge already says it: a "Live demo" kicker on a demo slide would show twice. */
+.slide.demo > h2 .kicker {
+  display: none;
+}
+.slide.check {
+  border-left: 12px solid var(--blue);
+}
+.slide.check h2 .kicker {
+  background: var(--blue);
+}
+.slide.check > h2::before {
+  content: "QUICK CHECK";
+  background: var(--blue);
+}
 
 /* ---- two-column numbered list, on any slide: <ol class="two-col"> ---- */
-ol.two-col { column-count: 2; column-gap: 56px; }
-ol.two-col > li { break-inside: avoid; }
+ol.two-col {
+  column-count: 2;
+  column-gap: 56px;
+}
+ol.two-col > li {
+  break-inside: avoid;
+}
 
 /* ---- scoreboard (incident list) slides ---- */
-.slide.scoreboard ol { font-size: 0.72em; column-count: 1; }
-.slide.scoreboard ol.two-col { column-count: 2; column-gap: 56px; }
-.slide.scoreboard li { margin: 0.32em 0; break-inside: avoid; }
-.slide.scoreboard li::marker { color: var(--coral); font-weight: 700; }
+.slide.scoreboard ol {
+  font-size: 0.72em;
+  column-count: 1;
+}
+.slide.scoreboard ol.two-col {
+  column-count: 2;
+  column-gap: 56px;
+}
+.slide.scoreboard li {
+  margin: 0.32em 0;
+  break-inside: avoid;
+}
+.slide.scoreboard li::marker {
+  color: var(--coral);
+  font-weight: 700;
+}
 .slide.scoreboard li.done {
   color: var(--muted);
   text-decoration: line-through;
   text-decoration-color: var(--green);
   text-decoration-thickness: 2.5px;
 }
-.slide.scoreboard li.done::marker { color: var(--green); }
+.slide.scoreboard li.done::marker {
+  color: var(--green);
+}
 .tag {
   display: inline-block;
   font-size: 0.62em;
@@ -232,8 +340,14 @@ ol.two-col > li { break-inside: avoid; }
   vertical-align: middle;
   margin-left: 0.5em;
 }
-.tag.partial { background: var(--yellow); color: var(--bg); }
-.tag.retired { background: var(--green); color: var(--bg); }
+.tag.partial {
+  background: var(--yellow);
+  color: var(--bg);
+}
+.tag.retired {
+  background: var(--green);
+  color: var(--bg);
+}
 
 /* ---- callouts: plain words, examples, analogies, warnings ----
    <div class="callout example"><p>…</p></div>
@@ -256,25 +370,71 @@ ol.two-col > li { break-inside: avoid; }
   text-transform: uppercase;
   color: var(--green);
 }
-.callout > :first-child { margin-top: 0; }
-.callout > :last-child { margin-bottom: 0; }
-.callout p, .callout li { margin: 0.2em 0; }
-.callout pre { font-size: 0.74em; background: var(--bg); }
-.callout.plain::before   { content: "In plain words"; }
-.callout.example         { border-left-color: var(--yellow); background: var(--tint-yellow); }
-.callout.example::before { content: "Example"; color: var(--yellow); }
-.callout.analogy         { border-left-color: var(--violet); background: var(--tint-violet); }
-.callout.analogy::before { content: "Think of it like"; color: var(--violet); }
-.callout.watch           { border-left-color: var(--coral); background: var(--tint-coral); }
-.callout.watch::before   { content: "Watch out"; color: var(--coral); }
-.callout.info            { border-left-color: var(--blue); background: var(--tint-blue); }
-.callout.info::before    { content: "Good to know"; color: var(--blue); }
-.callout[data-label]::before { content: attr(data-label); }
+.callout > :first-child {
+  margin-top: 0;
+}
+.callout > :last-child {
+  margin-bottom: 0;
+}
+.callout p,
+.callout li {
+  margin: 0.2em 0;
+}
+.callout pre {
+  font-size: 0.74em;
+  background: var(--bg);
+}
+.callout.plain::before {
+  content: "In plain words";
+}
+.callout.example {
+  border-left-color: var(--yellow);
+  background: var(--tint-yellow);
+}
+.callout.example::before {
+  content: "Example";
+  color: var(--yellow);
+}
+.callout.analogy {
+  border-left-color: var(--violet);
+  background: var(--tint-violet);
+}
+.callout.analogy::before {
+  content: "Think of it like";
+  color: var(--violet);
+}
+.callout.watch {
+  border-left-color: var(--coral);
+  background: var(--tint-coral);
+}
+.callout.watch::before {
+  content: "Watch out";
+  color: var(--coral);
+}
+.callout.info {
+  border-left-color: var(--blue);
+  background: var(--tint-blue);
+}
+.callout.info::before {
+  content: "Good to know";
+  color: var(--blue);
+}
+.callout[data-label]::before {
+  content: attr(data-label);
+}
 
 /* ---- cards: a row of 2–4 colored boxes ----
    <div class="cards"><div class="card"><h4>Title</h4><p>…</p></div>…</div> */
-.cards { display: flex; gap: 22px; margin: 0.5em 0; align-items: stretch; }
-.cards > .card { flex: 1; min-width: 0; }
+.cards {
+  display: flex;
+  gap: 22px;
+  margin: 0.5em 0;
+  align-items: stretch;
+}
+.cards > .card {
+  flex: 1;
+  min-width: 0;
+}
 .card {
   padding: 0.55em 0.8em 0.6em;
   border-radius: 14px;
@@ -288,23 +448,55 @@ ol.two-col > li { break-inside: avoid; }
   font-size: 1.08em;
   color: var(--green);
 }
-.card p, .card li { margin: 0.25em 0; }
-.card ul { padding-left: 1.1em; }
-.cards > .card:nth-child(5n+2) { border-top-color: var(--blue); }
-.cards > .card:nth-child(5n+2) h4 { color: var(--blue); }
-.cards > .card:nth-child(5n+3) { border-top-color: var(--yellow); }
-.cards > .card:nth-child(5n+3) h4 { color: var(--yellow); }
-.cards > .card:nth-child(5n+4) { border-top-color: var(--violet); }
-.cards > .card:nth-child(5n+4) h4 { color: var(--violet); }
-.cards > .card:nth-child(5n+5) { border-top-color: var(--coral); }
-.cards > .card:nth-child(5n+5) h4 { color: var(--coral); }
+.card p,
+.card li {
+  margin: 0.25em 0;
+}
+.card ul {
+  padding-left: 1.1em;
+}
+.cards > .card:nth-child(5n + 2) {
+  border-top-color: var(--blue);
+}
+.cards > .card:nth-child(5n + 2) h4 {
+  color: var(--blue);
+}
+.cards > .card:nth-child(5n + 3) {
+  border-top-color: var(--yellow);
+}
+.cards > .card:nth-child(5n + 3) h4 {
+  color: var(--yellow);
+}
+.cards > .card:nth-child(5n + 4) {
+  border-top-color: var(--violet);
+}
+.cards > .card:nth-child(5n + 4) h4 {
+  color: var(--violet);
+}
+.cards > .card:nth-child(5n + 5) {
+  border-top-color: var(--coral);
+}
+.cards > .card:nth-child(5n + 5) h4 {
+  color: var(--coral);
+}
 /* do/don't cards: only the bar and the title take the color, not the body text
    (.good/.bad alone color text), and they win over the nth-child cycle above */
-.cards > .card.good, .cards > .card.bad { color: var(--fg); }
-.cards > .card.good { border-top-color: var(--lime); }
-.cards > .card.good h4 { color: var(--lime); }
-.cards > .card.bad { border-top-color: var(--coral); }
-.cards > .card.bad h4 { color: var(--coral); }
+.cards > .card.good,
+.cards > .card.bad {
+  color: var(--fg);
+}
+.cards > .card.good {
+  border-top-color: var(--lime);
+}
+.cards > .card.good h4 {
+  color: var(--lime);
+}
+.cards > .card.bad {
+  border-top-color: var(--coral);
+}
+.cards > .card.bad h4 {
+  color: var(--coral);
+}
 
 /* ---- code ---- */
 pre {
@@ -319,8 +511,10 @@ pre {
   overflow: auto;
   color: var(--code-fg);
 }
-code, kbd {
-  font-family: "Cascadia Code", "JetBrains Mono", Consolas, "Courier New", monospace;
+code,
+kbd {
+  font-family:
+    "Cascadia Code", "JetBrains Mono", Consolas, "Courier New", monospace;
 }
 :not(pre) > code {
   background: var(--code-bg);
@@ -330,6 +524,9 @@ code, kbd {
   font-size: 0.82em;
   color: var(--code-fg);
 }
+code.nowrap {
+  white-space: nowrap;
+} /* a short inline sample that must stay on one line */
 kbd {
   background: var(--code-bg);
   border: 1px solid var(--muted);
@@ -338,8 +535,12 @@ kbd {
   padding: 0 10px;
   font-size: 0.8em;
 }
-.comment { color: var(--muted); }
-.hl { color: var(--green); }
+.comment {
+  color: var(--muted);
+}
+.hl {
+  color: var(--green);
+}
 
 /* ---- tables ---- */
 table {
@@ -348,7 +549,8 @@ table {
   margin: 0.5em 0;
   font-size: 0.72em;
 }
-th, td {
+th,
+td {
   border: 1px solid var(--border);
   padding: 8px 16px;
   text-align: left;
@@ -359,27 +561,71 @@ th {
   color: var(--green);
   font-weight: 700;
 }
-tr:nth-child(even) td { background: var(--surface); }
+tr:nth-child(even) td {
+  background: var(--surface);
+}
 
 /* ---- layout helpers ---- */
-.cols { display: flex; gap: 48px; align-items: flex-start; }
-.cols > * { flex: 1; min-width: 0; }
-.center { text-align: center; }
-.muted { color: var(--muted); }
-.accent { color: var(--green); }
-.good { color: var(--good); }
-.bad { color: var(--bad); }
-.warn { color: var(--warn); }
-.blue { color: var(--blue); }
-.violet { color: var(--violet); }
-.small { font-size: 0.78em; }
-.tiny { font-size: 0.62em; }
-.spacer { flex: 1; }
-.figure { display: flex; justify-content: center; margin: 0.4em 0; }
-.figure svg { max-width: 100%; height: auto; }
+.cols {
+  display: flex;
+  gap: 48px;
+  align-items: flex-start;
+}
+.cols > * {
+  flex: 1;
+  min-width: 0;
+}
+/* a wide code column beside a narrow explanation (Session 2, slide 20) */
+.cols.code-wide > :first-child {
+  flex: 2.2;
+}
+.center {
+  text-align: center;
+}
+.muted {
+  color: var(--muted);
+}
+.accent {
+  color: var(--green);
+}
+.good {
+  color: var(--good);
+}
+.bad {
+  color: var(--bad);
+}
+.warn {
+  color: var(--warn);
+}
+.blue {
+  color: var(--blue);
+}
+.violet {
+  color: var(--violet);
+}
+.small {
+  font-size: 0.78em;
+}
+.tiny {
+  font-size: 0.62em;
+}
+.spacer {
+  flex: 1;
+}
+.figure {
+  display: flex;
+  justify-content: center;
+  margin: 0.4em 0;
+}
+.figure svg {
+  max-width: 100%;
+  height: auto;
+}
 
 /* ---- speaker notes ---- */
-.notes { display: none; }
+.notes {
+  display: none;
+}
 body.show-notes .slide.current .notes {
   display: block;
   position: fixed;
@@ -394,11 +640,22 @@ body.show-notes .slide.current .notes {
   line-height: 1.5;
   padding: 16px 84px 18px;
 }
-body.show-notes .slide.current .notes { max-height: 50vh; overflow-y: auto; }
-.notes p { margin: 0 0 6px; }
-.notes p:last-child { margin-bottom: 0; }
-.notes b { color: var(--green); }
-.notes i { color: var(--muted); } /* [bracketed] lines are for the instructor, not spoken */
+body.show-notes .slide.current .notes {
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.notes p {
+  margin: 0 0 6px;
+}
+.notes p:last-child {
+  margin-bottom: 0;
+}
+.notes b {
+  color: var(--green);
+}
+.notes i {
+  color: var(--muted);
+} /* [bracketed] lines are for the instructor, not spoken */
 body.show-notes .slide.current .notes::before {
   content: "NOTES \00B7  ";
   color: var(--green);
@@ -429,5 +686,110 @@ body.show-notes .slide.current .notes::before {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #deck-progress { transition: none; }
+  #deck-progress {
+    transition: none;
+  }
+}
+
+/* ---- reading notes: <aside class="learn"> ----
+   Plain-language notes for students reading the deck on their own after class.
+   Never shown on the slide itself: deck.js copies the current slide's note into
+   #deck-learn and shrinks the slide (a fixed 1600x900 stage) to fit beside it.
+   On by default in the students' copy (<html data-copy="student">, added by
+   release/release.py); 'n' toggles it, ?learn=1 previews it here. */
+.slide aside.learn {
+  display: none;
+}
+body.learn .deck {
+  inset: auto;
+  top: 0;
+  left: 0;
+  width: 1600px;
+  height: 900px;
+  transform-origin: 0 0;
+}
+body.learn #deck-counter {
+  display: none;
+} /* the panel shows the slide number */
+#deck-learn {
+  display: none;
+}
+body.learn #deck-learn {
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  z-index: 35;
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 17px;
+  line-height: 1.6;
+}
+body.learn-side #deck-learn {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: clamp(320px, 30vw, 480px);
+  border-left: 3px solid var(--green);
+}
+body.learn-bottom #deck-learn {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 36vh;
+  border-top: 3px solid var(--green);
+}
+#deck-learn .learn-head {
+  padding: 18px 24px 10px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--green);
+}
+#deck-learn .learn-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 24px 12px;
+}
+#deck-learn .learn-body p {
+  margin: 0 0 0.75em;
+}
+#deck-learn .learn-body ul,
+#deck-learn .learn-body ol {
+  margin: 0 0 0.75em;
+  padding-left: 1.2em;
+}
+#deck-learn .learn-body li {
+  margin: 0.25em 0;
+}
+#deck-learn .learn-body code {
+  font-size: 0.92em;
+  background: var(--bg);
+  color: var(--code-fg);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+#deck-learn .learn-body b,
+#deck-learn .learn-body strong {
+  color: var(--white);
+}
+#deck-learn .learn-body .answer {
+  border-left: 3px solid var(--blue);
+  background: var(--tint-blue);
+  padding: 8px 12px;
+  border-radius: 0 6px 6px 0;
+}
+#deck-learn .learn-body .answer::before {
+  content: "Answer: ";
+  font-weight: 700;
+  color: var(--blue);
+}
+#deck-learn .learn-body .empty {
+  color: var(--muted);
+}
+#deck-learn .learn-foot {
+  padding: 10px 24px 14px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--muted);
 }
