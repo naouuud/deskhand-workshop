@@ -27,7 +27,7 @@ log = {
     "latency_ms": latency_ms,
 }
 
-file_path = Path("../logs/runs.jsonl")
+file_path = Path("logs/runs.jsonl")
 file_path.parent.mkdir(parents=True, exist_ok=True)
 
 with open(file_path, "a", encoding="utf-8") as f:

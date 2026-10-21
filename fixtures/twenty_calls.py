@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 load_dotenv()
-LOG_FILE_PATH = Path("../logs/runs.jsonl")
+LOG_FILE_PATH = Path("logs/runs.jsonl")
 LOG_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 with open("../shared/data/tickets.json", "r", encoding="utf-8") as f:
