@@ -32,6 +32,8 @@ HTTP contract (the UI in lab/static/ is one client of it):
 - POST /api/follow                      follow an existing 02–04 request_id from event 0
 - GET  /api/follow/recent               request_ids the lab submitted (survives an F5)
 - POST /api/search                      checkpoint 03's own retrieve() on a bare query
+- GET  /api/logs                        01–04's logs/runs.jsonl as one stream (the Logs tab):
+                                        ?tail=N, ?after=<cursor> or ?request_id=<id>
 """
 
 from __future__ import annotations
@@ -115,7 +117,7 @@ CHECKPOINTS: dict[str, dict[str, Any]] = {
         "runner": "cp00.py",
         "kind": "subprocess",
         "sessions": "Session 1",
-        "blurb": "One giant prompt, json.loads and hope. The “before” picture.",
+        "blurb": "Day one's bot: one giant prompt, nothing checked. The “before” picture.",
     },
     "01": {
         "name": "Triage",
@@ -123,7 +125,7 @@ CHECKPOINTS: dict[str, dict[str, Any]] = {
         "runner": "cp01.py",
         "kind": "subprocess",
         "sessions": "Sessions 2–3",
-        "blurb": "A typed TriageResult, one bounded repair, a request ID and a log line.",
+        "blurb": "Sorts a ticket into four labels, checks the answer, asks once more if it's broken, logs every call.",
     },
     "02": {
         "name": "Service",
@@ -131,7 +133,7 @@ CHECKPOINTS: dict[str, dict[str, Any]] = {
         "kind": "http",
         "port": 8002,
         "sessions": "Sessions 4–6",
-        "blurb": "A workflow of nodes: order lookup, business rules, an approval gate, idempotent refunds.",
+        "blurb": "Works a ticket step by step: looks up the order, checks the plan against rules, asks a person before big refunds, never pays twice.",
     },
     "03": {
         "name": "RAG",
@@ -140,7 +142,7 @@ CHECKPOINTS: dict[str, dict[str, Any]] = {
         "port": 8003,
         "sessions": "Sessions 7–9",
         "setup": "py ingest.py",
-        "blurb": "Plans must cite retrieved policy. The planted contradiction shows a prompt is not a guard.",
+        "blurb": "Looks up the policies before it plans. Every refund or replacement must cite the section it used.",
     },
     "04": {
         "name": "Production",
@@ -149,7 +151,7 @@ CHECKPOINTS: dict[str, dict[str, Any]] = {
         "port": 8004,
         "sessions": "Sessions 10–12",
         "setup": "py ingest.py",
-        "blurb": "Injection guard, budget cap, output guard, model routing. Every v1 incident retired.",
+        "blurb": "Screens tickets for attacks, checks the reply, caps the spend per run, has a kill switch. Eight of v1's ten problems fixed, two partly.",
     },
 }
 # The students' copy of the repo grows one checkpoint at a time, so the lab
@@ -415,6 +417,40 @@ INCIDENT_BOARD: list[dict[str, Any]] = [
 ]
 
 app = FastAPI(title="Deskhand Lab")
+
+
+class _RevalidateUI:
+    """The page and lab/static/ are revalidated on every load (no-cache: the
+    browser asks, and an unchanged file comes back as a 304 via its ETag).
+    Without it, a browser keeps an old views.js after the lab is updated and
+    a new tab in index.html routes to nothing. Plain ASGI, so the run
+    streams (/api/run, /api/follow) pass through untouched."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        path = scope.get("path", "")
+        if scope["type"] != "http" or not (path == "/" or path.startswith("/static/")):
+            return await self.app(scope, receive, send)
+
+        async def send_no_cache(message):
+            if message["type"] == "http.response.start":
+                headers = [
+                    (k, v)
+                    for k, v in message.get("headers", [])
+                    if k.lower() != b"cache-control"
+                ]
+                message = {
+                    **message,
+                    "headers": headers + [(b"cache-control", b"no-cache")],
+                }
+            await send(message)
+
+        await self.app(scope, receive, send_no_cache)
+
+
+app.add_middleware(_RevalidateUI)
 
 # ---------------------------------------------------------------- env & secrets
 # .env is read again on every call with dotenv_values(), never load_dotenv():
@@ -3325,6 +3361,295 @@ def estimate(body: EstimateRequest) -> dict:
             if cp in CHECKPOINTS
         },
     }
+
+
+# ------------------------------------------------------------- the Logs page
+# GET /api/logs: every checkpoint's logs/runs.jsonl as one stream, the way a
+# production log explorer shows a service (spec: specs/logs-page.md).
+# Read only, and only these files: the endpoint takes no path. Lines are
+# found by byte offset, so the cursor is the whole state and a lab restart
+# loses nothing. A line without its newline yet (a run mid-write) waits for
+# the next poll.
+
+LOG_TAIL_MAX = 5000  # most lines the first load may ask for
+LOG_AFTER_MAX = 2000  # most lines one after= or request_id= reply carries
+LOG_SCAN_MAX_BYTES = (
+    20_000_000  # request_id= reads at most this much of each file's end
+)
+_LOG_BLOCK = 64 * 1024  # tail reads backwards in blocks this size
+
+# The level is the lab's reading of the event name; obslog writes none.
+# Checked in this order. An event not listed is INFO, so a new one shows.
+_LEVEL_ERROR = {"run.failed", "node.error", "triage.failed"}
+_LEVEL_WARN = {
+    "recovery.resumed_runs",
+    "triage.repair",
+}  # plus any line with an error code
+_LEVEL_DEBUG = {"node.started", "node.completed", "run.status"}
+
+
+def _log_level(rec: dict | None) -> str:
+    """ERROR, WARN, INFO or DEBUG for one parsed line (None: not JSON)."""
+    if rec is None:
+        return "ERROR"
+    event = rec.get("event")
+    if event in _LEVEL_ERROR:
+        return "ERROR"
+    if rec.get("internal_error_code") or event in _LEVEL_WARN:
+        return "WARN"
+    if event in _LEVEL_DEBUG:
+        return "DEBUG"
+    return "INFO"
+
+
+def _log_sources() -> list[str]:
+    """The checkpoints that write a runs.jsonl (00 has no log: its lesson)."""
+    return [cp for cp in ("01", "02", "03", "04") if cp in CHECKPOINTS]
+
+
+def _log_size(path: Path) -> int:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
+
+
+def _complete_end(fh, size: int) -> int:
+    """The offset just past the file's last newline."""
+    pos = size
+    while pos > 0:
+        step = min(_LOG_BLOCK, pos)
+        fh.seek(pos - step)
+        i = fh.read(step).rfind(b"\n")
+        if i != -1:
+            return pos - step + i + 1
+        pos -= step
+    return 0
+
+
+def _tail_start(fh, end: int, n: int) -> int:
+    """Where the last n lines before `end` begin, reading backwards in blocks,
+    so a 50 MB log costs the same as a 50 KB one."""
+    pos, seen = end, 0
+    while pos > 0:
+        step = min(_LOG_BLOCK, pos)
+        fh.seek(pos - step)
+        block = fh.read(step)
+        i = len(block)
+        while True:
+            i = block.rfind(b"\n", 0, i)
+            if i == -1:
+                break
+            at = pos - step + i
+            if at == end - 1:
+                continue  # the newline that ends the last line
+            seen += 1
+            if seen == n:
+                return at + 1
+        pos -= step
+    return 0
+
+
+def _raw_lines(
+    fh, start: int, end: int, limit: int | None = None
+) -> tuple[list[tuple[int, int, bytes]], bool]:
+    """(offset, end offset, bytes) for each line in [start, end), and whether
+    the read got to `end` (False when `limit` lines stopped it first)."""
+    fh.seek(start)
+    pos, out = start, []
+    while pos < end:
+        if limit is not None and len(out) >= limit:
+            return out, False
+        raw = fh.readline()
+        if not raw:
+            break
+        out.append((pos, pos + len(raw), raw))
+        pos += len(raw)
+    return out, True
+
+
+def _log_line(src: str, offset: int, raw: bytes, secrets: list[str]) -> dict | None:
+    """One line as the page gets it, redacted. None for a blank line."""
+    text = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+    for secret in secrets:  # redact()'s rule, with .env read once per request
+        text = text.replace(secret, "[redacted]")
+    if not text.strip():
+        return None
+    try:
+        rec = json.loads(text)
+    except json.JSONDecodeError:
+        rec = None
+    if not isinstance(rec, dict):
+        rec = None
+    ts = rec.get("ts") if rec is not None and isinstance(rec.get("ts"), str) else None
+    return {
+        "id": f"{src}:{offset}",
+        "src": src,
+        "ts": ts,
+        "level": _log_level(rec),
+        "rec": rec if rec is not None else {"raw": text},
+    }
+
+
+def _parse_file(
+    src: str, raws: list[tuple[int, int, bytes]], secrets: list[str]
+) -> list[tuple[tuple, int, dict]]:
+    """Parsed lines with their sort key and end offset. A line with no ts
+    sorts with the line before it in its own file, so it stays with its
+    neighbours; ties keep service order, then file order."""
+    out, last_ts, rank = [], "", _log_sources().index(src)
+    for offset, end_off, raw in raws:
+        line = _log_line(src, offset, raw, secrets)
+        if line is None:
+            continue
+        last_ts = line["ts"] or last_ts
+        out.append(((last_ts, rank, offset), end_off, line))
+    return out
+
+
+def _encode_cursor(offsets: dict[str, int]) -> str:
+    return ",".join(f"{cp}:{offsets[cp]}" for cp in _log_sources())
+
+
+def _decode_cursor(cursor: str) -> dict[str, int]:
+    offsets: dict[str, int] = {}
+    try:
+        for part in cursor.split(","):
+            cp, offset = part.split(":")
+            if cp not in _log_sources() or int(offset) < 0:
+                raise ValueError(part)
+            offsets[cp] = int(offset)
+    except ValueError:
+        raise HTTPException(
+            400, "unreadable cursor: pass back the cursor a previous reply gave"
+        )
+    return offsets
+
+
+def _source_info(cp: str) -> dict:
+    folder = CHECKPOINTS[cp]["dir"]
+    path = _log_path(cp)
+    return {
+        "id": cp,
+        "label": Path(folder).name,
+        "path": f"{folder}/logs/runs.jsonl",
+        "exists": path.exists(),
+        "size_bytes": _log_size(path),
+    }
+
+
+def _logs_tail(n: int, secrets: list[str]) -> dict:
+    parsed, cursor = [], {}
+    for cp in _log_sources():
+        path = _log_path(cp)
+        cursor[cp] = 0
+        if not path.exists():
+            continue
+        with path.open("rb") as fh:
+            end = _complete_end(fh, _log_size(path))
+            raws, _ = _raw_lines(fh, _tail_start(fh, end, n), end)
+        cursor[cp] = end
+        parsed += _parse_file(cp, raws, secrets)
+    parsed.sort(key=lambda p: p[0])
+    return {
+        "lines": [p[2] for p in parsed[-n:]],
+        "cursor": _encode_cursor(cursor),
+        "more": False,
+    }
+
+
+def _logs_after(cursor: dict[str, int], secrets: list[str]) -> dict:
+    limit = LOG_AFTER_MAX
+    per_file, resets = {}, []
+    for cp in _log_sources():
+        path = _log_path(cp)
+        offset, size = cursor.get(cp, 0), _log_size(path)
+        if offset > size:  # cleared or deleted while we tailed it
+            offset = 0
+            resets.append(cp)
+        if not path.exists():
+            per_file[cp] = (offset, offset, [], True)
+            continue
+        with path.open("rb") as fh:
+            end = _complete_end(fh, size)
+            raws, reached = _raw_lines(fh, offset, end, limit + 1)
+        per_file[cp] = (offset, end, _parse_file(cp, raws, secrets), reached)
+
+    merged = sorted(
+        (p for (_, _, parsed, _) in per_file.values() for p in parsed),
+        key=lambda p: p[0],
+    )
+    sent = merged[:limit]
+    sent_ids = {p[2]["id"] for p in sent}
+    more = len(merged) > limit or any(
+        not reached for (_, _, _, reached) in per_file.values()
+    )
+
+    # Each file's cursor stops after the last line sent from it.
+    new_cursor = {}
+    for cp, (offset, end, parsed, reached) in per_file.items():
+        mine = [p for p in parsed if p[2]["id"] in sent_ids]
+        if reached and len(mine) == len(parsed):
+            new_cursor[cp] = end
+        elif mine:
+            new_cursor[cp] = mine[-1][1]
+        else:
+            new_cursor[cp] = offset
+    return {
+        "lines": [p[2] for p in sent],
+        "cursor": _encode_cursor(new_cursor),
+        "more": more,
+        "resets": resets,
+    }
+
+
+def _logs_for_run(request_id: str, secrets: list[str]) -> dict:
+    needle = json.dumps(request_id).encode("utf-8")  # as it appears in the line, quoted
+    parsed, truncated = [], False
+    for cp in _log_sources():
+        path = _log_path(cp)
+        if not path.exists():
+            continue
+        with path.open("rb") as fh:
+            end = _complete_end(fh, _log_size(path))
+            start = max(0, end - LOG_SCAN_MAX_BYTES)
+            if start > 0:
+                truncated = True
+                fh.seek(start - 1)
+                if fh.read(1) != b"\n":
+                    fh.readline()  # skip the partial line the window starts in
+                start = fh.tell()
+            raws, _ = _raw_lines(fh, start, end)
+        hits = [r for r in raws if needle in r[2]]
+        parsed += [
+            p
+            for p in _parse_file(cp, hits, secrets)
+            if p[2]["rec"].get("request_id") == request_id
+        ]
+    parsed.sort(key=lambda p: p[0])
+    return {
+        "lines": [p[2] for p in parsed[:LOG_AFTER_MAX]],
+        "more": len(parsed) > LOG_AFTER_MAX,
+        "truncated": truncated,
+        "request_id": request_id,
+    }
+
+
+@app.get("/api/logs")
+def api_logs(
+    tail: int = 1000, after: str | None = None, request_id: str | None = None
+) -> dict:
+    """The newest `tail` lines, or the lines since `after`, or one whole run.
+    Every reply lists lines oldest first; the page reverses them."""
+    secrets = _secrets()
+    if request_id is not None:
+        body = _logs_for_run(request_id, secrets)
+    elif after is not None:
+        body = _logs_after(_decode_cursor(after), secrets)
+    else:
+        body = _logs_tail(max(1, min(tail, LOG_TAIL_MAX)), secrets)
+    body["sources"] = [_source_info(cp) for cp in _log_sources()]
+    return body
 
 
 # ------------------------------------------------------------ read-only lookups

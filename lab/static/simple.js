@@ -497,7 +497,7 @@
       var refundPlanned = (s.actions || []).indexOf("issue_refund") !== -1;
       if (t.checkpoint === "04") {
         var ranGuard = t.nodes.some(function (n) { return n.node === "guard_input"; });
-        var checker = t.guard === "nemo" ? " (by NeMo Guardrails, an AI safety check on every ticket)" : " (by a keyword filter, with an AI check only on a match)";
+        var checker = t.guard === "nemo" ? " (by the NeMo guard, an AI safety check on every ticket)" : " (by the pattern guard, a keyword filter with an AI check only on a match)";
         items.push({ ok: ranGuard ? true : null, text: "The ticket was checked for suspicious content" + (ranGuard ? checker : "") + ": " + (f.guard_input ? "yes, and it was caught" : ranGuard ? "yes, nothing found" : "not reached") });
       }
       items.push({ ok: plan ? (s.validated ? true : false) : null, text: "The plan was checked against the business rules: " + (plan ? (s.validated ? "yes" + (s.repairs ? ", after " + s.repairs + " correction" + (s.repairs === 1 ? "" : "s") : "") : "it kept failing") : "no plan was made") });

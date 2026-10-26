@@ -33,6 +33,7 @@
     <button class="tab" data-view="compare" type="button">Compare</button>
     <button class="tab" data-view="repeat" type="button">Repeat</button>
     <button class="tab" data-view="incidents" type="button">Incidents</button>
+    <button class="tab" data-view="logs" type="button">Logs</button>
   </nav>
   <div class="topbar-right">
     <label class="model-pick" title="Which model the checkpoints call. The lab passes it to the processes it starts; .env is never edited.">
@@ -113,8 +114,8 @@
           <label id="guard-wrap" class="field" hidden>
             input guard
             <select id="guard">
-              <option value="heuristic">regex pre-gate + classifier (guardrails.py)</option>
-              <option value="nemo">NeMo Guardrails, every ticket (guardrails_nemo.py)</option>
+              <option value="heuristic">pattern guard: patterns, a model only on a hit (guardrails.py)</option>
+              <option value="nemo">NeMo guard: a model checks every ticket (guardrails_nemo.py)</option>
             </select>
           </label>
           <label id="approval-wrap" class="field" hidden>
@@ -192,9 +193,9 @@
           </label>
           <label id="cmp-guard-wrap" class="field" hidden>04's input guard
             <select id="cmp-guard">
-              <option value="both">both, side by side (without / with NeMo)</option>
-              <option value="heuristic">regex pre-gate + classifier</option>
-              <option value="nemo">NeMo Guardrails</option>
+              <option value="both">both, side by side (pattern guard / NeMo guard)</option>
+              <option value="heuristic">pattern guard</option>
+              <option value="nemo">NeMo guard</option>
             </select>
           </label>
           <button id="cmp-btn" class="btn btn-primary btn-lg" type="button">Compare ▶</button>
@@ -248,6 +249,26 @@
       <div id="incident-board" class="board"></div>
     </div>
 
+    <!-- Logs -->
+    <div id="view-logs" class="view" hidden>
+      <div class="step">
+        <div class="step-head">Logs: every checkpoint, as one live stream</div>
+        <p class="muted small">
+          The lines checkpoints 01 to 04 append to their <code>logs/runs.jsonl</code>, from the lab, a terminal,
+          curl and the evals alike. Click a request id to follow one run, an event or a code to filter on it.
+        </p>
+        <p class="why small">
+          Every line here was written by the checkpoint's own <code>obslog.log_event</code>: one JSON object
+          per line, with a <code>ts</code> and a <code>request_id</code>. The services write theirs through
+          <code>events.publish</code>, which stores the event for the SSE stream first. The <b>level</b> and the
+          one-line <b>message</b> are the lab's reading of the event name; the log itself has neither.
+          That <code>request_id</code> is what turns thousands of interleaved lines into one run you can read.
+        </p>
+        <div id="logs-cites"></div>
+      </div>
+      <div id="logs-root"></div>
+    </div>
+
   </section>
 </main>
 
@@ -267,6 +288,7 @@
 <script src="/static/cp01.js"></script>
 <script src="/static/cpsvc.js"></script>
 <script src="/static/simple.js"></script>
+<script src="/static/logs.js"></script>
 <script src="/static/views.js"></script>
 </body>
 </html>

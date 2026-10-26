@@ -185,6 +185,34 @@ you confirm the cost first.
 card picks a ticket that tends to reproduce the incident and runs it on 00,
 or on the checkpoint that retires it. A good way to open a session.
 
+**Logs** — every line checkpoints 01–04 append to their `logs/runs.jsonl`,
+as one live stream, the way a production log explorer shows a service. Runs
+from the lab, a terminal, curl and the evals all land here, interleaved,
+because that is what the files hold. It costs nothing to open: no run, no
+model call.
+
+- **Live tail.** New lines arrive every 2 seconds. While you are scrolled
+  into the table or have a row open, they wait behind an _N new lines ↑_
+  pill instead of moving the table. **Live / Paused** (or Space) stops it.
+- **Levels.** ERROR, WARN, INFO, DEBUG, worked out by the lab from the event
+  name (obslog writes no level): `run.failed`, `node.error`, `triage.failed`
+  and unreadable lines are ERROR; any line with an `internal_error_code` is
+  WARN; `node.*` and `run.status` are DEBUG, hidden by default. The one-line
+  message is the lab's reading too; expand a row for the line itself.
+- **Finding things.** Text search (`/`), time range, level, the facets on the
+  left (service, level, event, error code, with counts), and a chart of lines
+  over time (click a bar to narrow to it).
+- **One run.** Click a request id: the server returns every line of that run
+  from all four files, and a strip sums it up (ticket, duration, nodes, cost,
+  outcome). **Open in Run** replays it through Follow (02–04).
+- **Links survive projecting.** The filters live in the hash:
+  `#logs?svc=04&level=warn&rid=3782e6221b42`.
+- **The terminal line.** Every filter is shown as the PowerShell that does
+  the same (`Select-String`, or `ConvertFrom-Json | Where-Object`), so the
+  grep stays the lesson.
+
+The spec, written before the code: `specs/logs-page.md`.
+
 ### Tickets worth projecting
 
 | Ticket                      | Why                                                                                                                                                                                          |
@@ -294,8 +322,11 @@ numpy PCA, and searches the query with the store's own call.
 
 ## Deliberately left to the terminal
 
-The lab doesn't diff checkpoints, run `pytest`, or search `logs/runs.jsonl`
-across runs. Those are the lesson, not friction (same rule as the 02 console).
+The lab doesn't diff checkpoints or run `pytest`. Those are the lesson, not
+friction (same rule as the 02 console). It does search `logs/runs.jsonl`
+across runs, in the Logs view, but never without the command: every filter
+there is shown as the PowerShell that does the same, and level and time
+range, which are the lab's own reading, are named as such.
 Every report ends with **Do the same in the terminal**: copyable PowerShell
 that does what the lab just did (`py bot.py '…'`, a `classify_ticket`
 one-liner, `Invoke-RestMethod` against the service, `curl -N` on the event
@@ -332,6 +363,9 @@ The UI is one client. Everything it does, `curl` can do:
 | `GET /api/services/flags`                                                                                          | which flags each service offers (read from the code)                                                                                                                                                              |
 | `POST /api/services/{name}/stop`                                                                                   | stop a service (one started in a terminal too, if the port serves the expected app)                                                                                                                               |
 | `GET /api/services/{name}/log`                                                                                     | the last lines a managed service printed                                                                                                                                                                          |
+| `GET /api/logs?tail=N`                                                                                             | the newest N lines (default 1,000, at most 5,000) of 01–04's `logs/runs.jsonl`, merged by `ts`, oldest first, each `{id, src, ts, level, rec}`; plus `sources` and a `cursor`                                     |
+| `GET /api/logs?after=<cursor>`                                                                                     | the lines appended since the cursor (at most 2,000; `more` when there are others), a new cursor, and `resets` for a log that was cleared                                                                          |
+| `GET /api/logs?request_id=<id>`                                                                                    | every line of one run, from all four files (the last 20 MB of each)                                                                                                                                               |
 
 ```powershell
 # One NDJSON line per event; the last one is the trace. Works in PowerShell 5.1 and 7.
@@ -357,5 +391,8 @@ lab/
   static/cp01.js       checkpoint 01 live view and report
   static/cpsvc.js      checkpoints 02–04 live view and report
   static/simple.js     the Simple view: the same run in plain words, and the Simple / Detailed switch
-  static/views.js      Run, Compare, Repeat, Incidents; routing; boot
+  static/logs.js       the Logs view: 01–04's logs as one live stream
+  static/views.js      Run, Compare, Repeat, Incidents, Logs; routing; boot
+  conftest.py          puts lab/ on sys.path for the tests
+  tests/               offline tests (GET /api/logs, the Logs view's wiring): py -m pytest -q, inside lab/
 ```

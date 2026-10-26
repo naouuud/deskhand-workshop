@@ -21,8 +21,9 @@ This repo grows after each session, so it never shows you more than you need yet
 | Sun Oct 18 | Setup files, the shared data (tickets, policies, mock order API), checkpoint 00-broken-bot          |
 | Mon Oct 19 | Session 1 slides and handout, checkpoint 01-triage, the lab (lab/)                                  |
 | Wed Oct 21 | Session 2 slides and handout, the Session 1 measuring script, free LLM providers (LLM_PROVIDERS.md) |
+| Fri Oct 23 | Session 3 slides and handout, the two hooks from class, checkpoint 02-service |
 
-Next update: Fri Oct 23, after class.
+Next update: Mon Oct 26, after class.
 
 ## Repo map
 

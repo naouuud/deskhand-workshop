@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html data-copy="student" lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Session 03: Agentic Development</title>
+<link rel="stylesheet" href="deck.css">
+<script src="deck.js" defer></script>
+</head>
+<body>
+<main class="deck">
+
+
+<section class="slide lead">
+  <h1>Agentic Development</h1>
+  <p class="subtitle">A coding agent writes the code. Today: what it works from, how you say what you want, and how far you let it run.</p>
+  <p class="session-meta">Session 3 · Week 1 · Friday, October 23, 2026</p>
+  <aside class="learn">
+    <p>Session 3 of the Deskhand workshop. In Sessions 1 and 2 a model worked inside Deskhand and your code checked its answers. Today a model writes Deskhand's code as a <b>coding agent</b>: a tool that reads your files, edits them and runs commands on its own. Three ideas: its context, the spec, its permissions.</p>
+  </aside>
+</section>
+
+<section class="slide demo">
+  <h2><span class="kicker">Hook</span>Vibe-code it: one line, full auto, timer on</h2>
+  <p>My agent gets the triage folder from Wednesday and this prompt, in <strong>full auto</strong>: it edits files and runs commands without asking me, and it stops when it decides it's done.</p>
+  <div class="callout example" data-label="The prompt, all of it"><p><code>Add a per-category summary table to the triage CLI.</code></p></div>
+  <div class="callout" data-label="Your vote, before I press enter"><p><strong>1:</strong> it asks a question first. <strong>2:</strong> it just builds it. And for later: when it says "done", would you merge it?</p></div>
+  <p class="small">It runs while we talk. We read what it did on slide 4.</p>
+  <aside class="learn">
+    <p>The session opens with a live run. <b>Full auto</b> is the setting where the agent edits files and runs commands without asking for permission; it works until it decides the task is done. The prompt is one sentence with no detail: nothing about failed tickets, nothing about libraries, nothing about tests. The class votes on two questions before the run starts.</p>
+    <p class="answer">In full auto the agent never asks a question: it builds. Whether to merge is the question the rest of the deck answers; slide 4 shows what this run produced.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Today</span>From vibe coding to engineering with an agent</h2>
+  <div class="cards">
+    <div class="card bad"><h4>Vibe coding (Karpathy, February 2025)</h4><p>"Accept All", don't read the diffs, paste the error back in, "forget that the code even exists". A joy for a weekend game.</p></div>
+    <div class="card good"><h4>Vibe engineering (Willison, October 2025)</h4><p>The same agent, with a professional's habits around it: rules it reads first, a written spec, tests it must pass, a diff you read.</p></div>
+  </div>
+  <div class="callout plain" data-label="The sentence under today"><p><strong>The agent types. You decide what it reads and what it must pass.</strong></p></div>
+  <ol>
+    <li><strong>Context.</strong> Everything it knows is in its context window. You decide what goes in.</li>
+    <li><strong>The spec.</strong> Say what you want in writing. The plan, the tests and the code follow from it.</li>
+    <li><strong>Permissions.</strong> How much it may do without asking, and what has to be true before you loosen them.</li>
+  </ol>
+  <aside class="learn">
+    <p><b>Vibe coding</b> is Andrej Karpathy's name (February 2025) for building software by accepting whatever the model writes, pasting errors back in, and never reading the code. It works for throwaway projects. <b>Vibe engineering</b> is Simon Willison's name (October 2025) for using the same coding agents to build software you are responsible for: a written plan, tests the agent must pass, version control, and a human who reads the changes. The sentence the deck rests on: the agent types, you decide what it reads (ideas 1 and 2) and what it must pass (idea 3). Each block of the session is one of the three ideas.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Hook</span>What came back: clean code, and three decisions you never made</h2>
+  <pre><code><span class="comment"># main.py, a practice run before class: 22 green lines in 60 seconds, no new library</span>
+<span class="good">+    # Per-category rollup, filled as results arrive: category -> list of</span>
+<span class="good">+    # (confidence, cost_usd). Failed tickets never reach it; they are already</span>
+<span class="good">+    # counted in `failures`.</span>
+<span class="good">+    by_category: dict[str, list[tuple[float, float]]] = {}</span>
+     for ticket in tickets:
+         except errors.DeskhandError as exc:
+             table.add_row(ticket["ticket_id"], f"FAILED ({exc.internal_error_code})", "-", "-", "-", "-")
+             continue
+<span class="good">+        by_category.setdefault(result.category, []).append((result.confidence, cost_usd))</span>
+     ...
+<span class="good">+    summary = Table(title="By category")</span>
+<span class="good">+    for category, rows in sorted(by_category.items(), key=lambda item: -len(item[1])):</span>
+<span class="good">+        summary.add_row(category, str(len(rows)), f"{sum(confidences) / len(rows):.2f}", ...)</span></code></pre>
+  <div class="cards">
+    <div class="card bad"><h4>It decided what a failed ticket means</h4><p>Left out of the summary. Written up in a comment, so it reads as a choice.</p></div>
+    <div class="card bad"><h4>It decided what to check</h4><p>No test written. The 18 shipped tests never ran. It still said "Done".</p></div>
+    <div class="card"><h4>It decided the shape</h4><p>Sorted by count, two decimals, hidden when every ticket fails. Fine choices. Nobody asked for them.</p></div>
+  </div>
+  <div class="callout" data-label="Your vote"><p>Which of the three would you notice <strong>last</strong>?</p></div>
+  <aside class="learn">
+    <p>This is the change the agent made from the one-line prompt in a practice run before class (22 October), read as a <b>diff</b>: green lines were added, the rest was already there. The code is clean and uses the libraries already in the file. Three decisions were taken without you: tickets that failed triage are left out of the summary (the agent even documented that choice in a comment), no test was written and the existing 18 were never run, and the table's shape (sorting, rounding, when to hide it) was chosen for you.</p>
+    <p class="answer">The dropped failed tickets are the one you would notice last. A missing test shows in the file tree and the table's shape is visible on screen; a summary that quietly leaves rows out looks like a normal table. The rest of the deck is about giving the agent what it needed before it typed.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">1 · Context</span>One model, three kinds of tool, one loop</h2>
+  <div class="cards">
+    <div class="card"><h4>Autocomplete</h4><p>Suggests the next lines. <strong>You check</strong> before you press Tab.</p></div>
+    <div class="card"><h4>Chat</h4><p>Answers; you paste code in. <strong>You check</strong> before you paste.</p></div>
+    <div class="card"><h4>Agent</h4><p>Opens files, edits, runs commands, decides what's next. <strong>You check</strong> after: a whole diff.</p></div>
+  </div>
+  <div class="figure">
+  <svg viewBox="0 0 1080 206" width="1020" height="195" role="img" aria-label="Agent loop: read files, write an edit, run pytest, you review; it loops back to editing until the tests pass">
+    <defs>
+      <marker id="arrL" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#01d294"/>
+      </marker>
+    </defs>
+    <g font-family="Segoe UI, sans-serif" font-size="19" fill="#eef6f3" text-anchor="middle">
+      <rect x="20" y="20" width="220" height="70" rx="10" fill="#112a45" stroke="#5aa2ff"/>
+      <text x="130" y="50" fill="#5aa2ff">Read files</text>
+      <text x="130" y="75" font-size="17" fill="#9db5b1">opens what it thinks matters</text>
+      <rect x="280" y="20" width="220" height="70" rx="10" fill="#251f3d" stroke="#b99cff"/>
+      <text x="390" y="50" fill="#b99cff">Write an edit</text>
+      <text x="390" y="75" font-size="17" fill="#9db5b1">the model predicts code</text>
+      <rect x="540" y="20" width="220" height="70" rx="10" fill="#0d3029" stroke="#01d294"/>
+      <text x="650" y="50" fill="#01d294">Run pytest</text>
+      <text x="650" y="75" font-size="17" fill="#9db5b1">plain code checks the edit</text>
+      <rect x="800" y="20" width="240" height="70" rx="10" fill="#2e2a14" stroke="#ffc53d"/>
+      <text x="920" y="50" fill="#ffc53d">You review</text>
+      <text x="920" y="75" font-size="17" fill="#9db5b1">the final check</text>
+      <line x1="240" y1="55" x2="272" y2="55" stroke="#01d294" stroke-width="2.5" marker-end="url(#arrL)"/>
+      <line x1="500" y1="55" x2="532" y2="55" stroke="#01d294" stroke-width="2.5" marker-end="url(#arrL)"/>
+      <line x1="760" y1="55" x2="792" y2="55" stroke="#01d294" stroke-width="2.5" marker-end="url(#arrL)"/>
+      <path d="M 650 90 C 650 156 395 156 390 96" fill="none" stroke="#9db5b1" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#arrL)"/>
+      <text x="520" y="168" font-size="17" fill="#9db5b1">check fails? try again</text>
+      <text x="540" y="198" font-size="17" fill="#6f8f8a">violet = the model · green = ordinary code · yellow = you</text>
+    </g>
+  </svg>
+  </div>
+  <p class="small">A <strong>coding agent</strong> is a model in a loop with tools. It repairs against whatever check exists. No tests, and the loop stops at "it runs", not at "it's right". Copilot, Cursor, Claude Code, Codex: all of them are this, in an editor, a plugin or a terminal.</p>
+  <aside class="learn">
+    <p>Most assistant products offer three kinds of help. <b>Autocomplete</b> suggests the next lines while you type; you check each suggestion before accepting it. <b>Chat</b> answers questions and writes code you paste in yourself. A <b>coding agent</b> is a model in a loop with tools: it opens files, edits them, runs commands such as <code>pytest</code>, reads the output and decides what to do next, until it judges the task done. The further right, the more it changes before you look, so an agent is checked afterwards, as a whole set of changes. The diagram is the agent's loop; the dashed arrow is the part that matters. It keeps going until its check passes, so with no tests the only check is "the code runs". Copilot, Cursor, Claude Code and Codex all work this way; the brand changes nothing in this deck.</p>
+  </aside>
+</section>
+
+<section class="slide demo">
+  <h2><span class="kicker">1 · Context</span>Everything it knows is in its context</h2>
+  <div class="cards">
+    <div class="card good"><h4>In the context window</h4><ul><li>Its system prompt</li><li>Your rules file, your messages</li><li>Files it chose to open</li><li>The output of every command it ran</li></ul></div>
+    <div class="card bad"><h4>Not in it</h4><ul><li>Files it never opened</li><li>Runs and logs it never read</li><li>Why you want the change</li><li>Yesterday's conversation</li></ul></div>
+  </div>
+  <p class="small">A small project fits in it whole. A large codebase doesn't: the agent searches, reads what it chooses, and can choose wrong.</p>
+  <div class="callout" data-label="During the build, ask"><p><strong>Could it point at the line?</strong> When it tells you how something works, ask which file and which line. If it can't, it guessed. <code>/context</code> shows what it has actually read.</p></div>
+  <aside class="learn">
+    <p>Session 1 called everything a model gets in one call its <b>context window</b>. A coding agent has one too. In it: the tool's <b>system prompt</b> (its built-in instructions), your rules file and messages, the files the agent decided to open, and the output of every command it ran. Not in it: files it never opened, logs it never read, your reasons. A small project fits whole; a large codebase does not, so the agent searches and picks, and can pick wrong. The habit for the whole session: when the agent states a fact about the code, ask it to point at the file and line that holds it. If it cannot, treat the answer as a guess. In Claude Code, <code>/context</code> shows what is in the context window right now.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">1 · Context</span>Context engineering: deciding what's in its context</h2>
+  <div class="callout plain"><p><strong>Context engineering</strong> is choosing what the agent reads before it acts: what you put in its context, what you point it at, what you keep out, and when you clear it.</p></div>
+  <div class="cards">
+    <div class="card"><h4>The rules file</h4><p>Durable. Read at the start of every session. Your team's conventions, written once.</p></div>
+    <div class="card"><h4>The spec</h4><p>This task. What you want, in writing, before it types. Block 2.</p></div>
+    <div class="card"><h4>Pointers</h4><p>"Read <code>lab/server.py</code> first." Paste the log line. Link the doc. It reads what you point at instead of guessing.</p></div>
+    <div class="card"><h4>Clearing</h4><p>One task per session. A fresh session for the review. A full context gets compacted: summarised, detail lost.</p></div>
+  </div>
+  <div class="callout watch"><p>Every token in it is paid for on every turn, and anything in it can steer the agent: T-1006's prompt injection works through a command's output too.</p></div>
+  <aside class="learn">
+    <p><b>Context engineering</b> is the practice of deciding what the agent reads before it acts. The four levers on the slide: the <b>rules file</b>, a file in the repo the agent reads at the start of every session (next slide); the <b>spec</b>, a written description of this one task (block 2); <b>pointers</b>, naming the file, pasting the log line or linking the document you want it to read first; and <b>clearing</b>, starting a fresh session per task and for the review, because a full context window gets summarised by the tool (Claude Code calls this <b>compaction</b>) and loses detail. Two costs to remember: everything in the context is sent to the model on every turn, so it costs tokens each time, and anything in it can change what the agent does. The prompt injection from Session 2's T-1006 works just as well if it arrives in the output of a command the agent ran.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">1 · Context</span>The rules file: write your team's rules down once</h2>
+  <div class="callout plain"><p>A <strong>rules file</strong> is a text file in the repo that the agent reads at the start of every session. It has no memory between sessions, so this file is its memory. Commit it, like a lint config. Most tools read <code>AGENTS.md</code>; Claude Code reads <code>CLAUDE.md</code>, so that file holds one line, <code>@AGENTS.md</code>, and you maintain one file.</p></div>
+  <div class="cards">
+    <div class="card good"><h4>Belongs</h4><ul><li>How to run it and test it</li><li>Boundaries: which file talks to the provider</li><li>Conventions with a reason</li><li>"Ask before adding a dependency"</li><li>"Run pytest before you say done"</li></ul></div>
+    <div class="card bad"><h4>Doesn't</h4><ul><li>"Write clean code": nothing to check it against</li><li>Today's task: that's the spec</li><li>Anything the code already says</li><li>A fourth page: every line costs tokens on every turn</li></ul></div>
+  </div>
+  <p class="small">About twenty lines. Review changes to it like code: it changes what every teammate's agent does.</p>
+  <aside class="learn">
+    <p>A <b>rules file</b> is a text file committed in the repo that the coding agent reads at the start of every session. The agent remembers nothing between sessions, so this file carries your team's conventions. The shared name is <code>AGENTS.md</code>, read by Codex, Cursor, Copilot's agent and others. Claude Code reads a file called <code>CLAUDE.md</code>; a single line in it, <code>@AGENTS.md</code>, imports the shared file, so you keep one set of rules. What belongs: how to run and test the code, which file is allowed to call the provider, conventions with the reason behind them, and habits such as asking before adding a dependency. What does not: vague instructions like "write clean code" (there is nothing to check them against), the task of the day (that is the spec), and anything the code already makes obvious. Keep it near twenty lines: every line is sent to the model on every turn.</p>
+  </aside>
+</section>
+
+<section class="slide demo">
+  <h2><span class="kicker">1 · Context</span>The rules the agent read before the build. Then tempt it.</h2>
+  <pre><code><span class="comment"># CLAUDE.md, the course repo's rules file (excerpt)</span>
+- The lab is a harness, not a reimplementation. It runs the real checkpoint code
+  unmodified and observes it. Deleting lab/ must change nothing in checkpoints/.
+<span class="comment">## Lab / console UI</span>
+- Plain HTML, CSS and ES5-style JS. No npm, no build step, no CDN, no new dependencies.
+  It must work offline in class.
+- Render anything that came from a ticket or a model with textContent (via L.el), never
+  innerHTML. Some tickets are prompt-injection payloads.
+- Colors come only from the semantic tokens at the top of lab.css. Both themes
+  (html[data-theme="dark"|"light"]) must define every token. No raw hex or rgba in rules
+  or in JS.</code></pre>
+  <p class="small">Each line can be checked against a file, and each has its reason next to it. Now a request that breaks one. Predict: <strong>rule or request?</strong></p>
+  <div class="cards">
+    <div class="card"><h4>"Draw the chart with a library from a CDN"</h4><p>Rule: no CDN, no new dependencies.</p></div>
+    <div class="card"><h4>"Show the message with innerHTML"</h4><p>Rule: <code>textContent</code>, never <code>innerHTML</code>.</p></div>
+    <div class="card"><h4>"Add a level field to the checkpoints' logs"</h4><p>Rule: deleting <code>lab/</code> changes nothing in <code>checkpoints/</code>.</p></div>
+  </div>
+  <aside class="learn">
+    <p>The rules file the agent read at the start of the session in which it built the Logs page: an excerpt from the course repo's <code>CLAUDE.md</code>. Each line is checkable against a file (a library import, a CDN link, an <code>innerHTML</code>, a raw color, a change under <code>checkpoints/</code>), and most carry their reason: the lab must work offline in class, and some tickets are prompt-injection payloads. The harness rule keeps the lab a pure observer of the checkpoints. The three cards are requests that each break one rule.</p>
+    <p class="answer">Rule or request? It varies. Interactive, the agent often asks before breaking a rule; run without anyone to ask, the request often wins. A rules file is guidance the agent usually follows, not a check it cannot skip; block 3 adds the check, and slide 20 shows a hook that enforces the <code>innerHTML</code> rule.</p>
+  </aside>
+</section>
+
+<section class="slide check">
+  <h2><span class="kicker">1 · Context</span>Which of these belong in the rules file?</h2>
+  <ol>
+    <li>"Render ticket and model text with <code>textContent</code>, never <code>innerHTML</code>."</li>
+    <li>"Write clean, readable code."</li>
+    <li>"Add a Logs tab to the lab."</li>
+    <li>"No npm, no build step, no CDN."</li>
+  </ol>
+  <p>Vote for each: in the file, or not? Remember what the file is for: it's read at the start of <em>every</em> session, and every line costs tokens.</p>
+  <aside class="learn">
+    <p>A quick check on what a rules file is for. It is read at the start of every session, so it should hold rules that apply to every task, each one checkable against the code.</p>
+    <p class="answer">Lines 1 and 4 belong. Line 1 is checkable (search for <code>innerHTML</code>) and carries a reason a newcomer would not guess; line 4 is a team constraint. Line 2 does not belong: there is nothing to check "clean" against, every agent already tries, and the line costs tokens on every turn. Line 3 is a task for one session, not a rule for all of them; it belongs in the spec, which the next block introduces.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">2 · The spec</span>What the one-line prompt left out: a spec</h2>
+  <div class="callout plain"><p>A <strong>spec</strong> is what you want, in writing, before the agent types: the goal, the limits, the edge cases, and what "done" means.</p></div>
+  <pre><code><span class="comment"># lab/specs/logs-page.md (excerpt)</span>
+<span class="comment">## What it does                                             # 1 · the goal</span>
+- R1. A fifth tab, Logs, after Incidents, at #logs. It works with any checkpoint
+  picked and never starts a run, a service or a model call.
+<span class="comment">## Limits                                                   # 2 · the limits</span>
+- Nothing in checkpoints/ changes. No level added to obslog, no new events.
+- No new dependencies, no npm, no build step, no CDN. Polling, not WebSockets.
+<span class="comment">## Edge cases                                               # 3 · the edge cases</span>
+- Half-written last line (a run still writing): the server reads only up to the last
+  newline and leaves the rest for the next poll.
+<span class="comment">## Done when                                                # 4 · what done means</span>
+1. py -m pytest -q inside lab/ passes, offline, with no service running.
+2. Every checkpoint's pytest gives the same result as before, and
+   git diff --stat checkpoints/ is empty.</code></pre>
+  <div class="callout info" data-label="Spec-driven development"><p>The spec first; the plan, the tests and the code derive from it. Your capstone design doc is the same at project scale.</p></div>
+  <aside class="learn">
+    <p>A <b>spec</b> is a short written description of what the code must do, written before the agent types. The one on the slide is an excerpt from the spec of the Logs page built in class, <code>lab/specs/logs-page.md</code>, which is in your repo. It has four parts: the goal (a Logs tab that works with any checkpoint and never starts a run, a service or a model call), the limits (nothing in <code>checkpoints/</code> changes, no new dependencies; both come from the rules file on slide 9, applied to this task), the edge cases (a log line still being written must wait for its newline), and what "done" means, stated as checks: the lab's tests pass offline, and <code>git diff --stat checkpoints/</code> is empty. <b>Spec-driven development</b> is working in that order: spec first, then a plan, then tests, then code, with the code checked against the spec last.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">2 · The spec</span>The order: spec, plan, tests, code, review</h2>
+  <div class="figure">
+  <svg viewBox="0 0 1080 200" width="1020" height="189" role="img" aria-label="Spec-first workflow in five steps: you write the spec, the agent proposes a plan you correct, tests come first and must fail, the agent writes code until they pass, you read the diff">
+    <defs>
+      <marker id="arrS" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#01d294"/>
+      </marker>
+    </defs>
+    <g font-family="Segoe UI, sans-serif" font-size="19" fill="#eef6f3" text-anchor="middle">
+      <rect x="10" y="40" width="190" height="100" rx="10" fill="#2e2a14" stroke="#ffc53d"/>
+      <text x="105" y="74" fill="#ffc53d">1 · Spec</text>
+      <text x="105" y="100" font-size="16" fill="#9db5b1">you write it:</text>
+      <text x="105" y="120" font-size="16" fill="#9db5b1">goal, limits, edges, done</text>
+      <rect x="230" y="40" width="190" height="100" rx="10" fill="#251f3d" stroke="#b99cff"/>
+      <text x="325" y="74" fill="#b99cff">2 · Plan</text>
+      <text x="325" y="100" font-size="16" fill="#9db5b1">it proposes, no edits;</text>
+      <text x="325" y="120" font-size="16" fill="#9db5b1">you correct the plan</text>
+      <rect x="450" y="40" width="190" height="100" rx="10" fill="#2e2a14" stroke="#ffc53d"/>
+      <text x="545" y="74" fill="#ffc53d">3 · Tests</text>
+      <text x="545" y="100" font-size="16" fill="#9db5b1">it types, you approve;</text>
+      <text x="545" y="120" font-size="16" fill="#9db5b1">they must fail first</text>
+      <rect x="670" y="40" width="190" height="100" rx="10" fill="#251f3d" stroke="#b99cff"/>
+      <text x="765" y="74" fill="#b99cff">4 · Code</text>
+      <text x="765" y="100" font-size="16" fill="#9db5b1">it loops against</text>
+      <text x="765" y="120" font-size="16" fill="#9db5b1">your tests, not its guesses</text>
+      <rect x="890" y="40" width="180" height="100" rx="10" fill="#2e2a14" stroke="#ffc53d"/>
+      <text x="980" y="74" fill="#ffc53d">5 · Diff</text>
+      <text x="980" y="100" font-size="16" fill="#9db5b1">you read every line</text>
+      <text x="980" y="120" font-size="16" fill="#9db5b1">before you run it</text>
+      <line x1="200" y1="90" x2="222" y2="90" stroke="#01d294" stroke-width="2.5" marker-end="url(#arrS)"/>
+      <line x1="420" y1="90" x2="442" y2="90" stroke="#01d294" stroke-width="2.5" marker-end="url(#arrS)"/>
+      <line x1="640" y1="90" x2="662" y2="90" stroke="#01d294" stroke-width="2.5" marker-end="url(#arrS)"/>
+      <line x1="860" y1="90" x2="882" y2="90" stroke="#01d294" stroke-width="2.5" marker-end="url(#arrS)"/>
+      <text x="540" y="182" font-size="17" fill="#6f8f8a">yellow = you · violet = the agent</text>
+    </g>
+  </svg>
+  </div>
+  <div class="callout plain"><p><strong>Plan mode</strong>: the agent may read and propose, but not edit. You correct the plan, which is cheaper than correcting code. Claude Code, Cursor and Copilot each have one; in any tool, "propose a plan, write no code yet" does the same job.</p></div>
+  <div class="callout analogy"><p>A restaurant: the order ticket is the spec, the kitchen's prep list is the plan, and you taste before it leaves the kitchen.</p></div>
+  <aside class="learn">
+    <p>The five steps, and who does each. You write the <b>spec</b>. The agent proposes a <b>plan</b> in <b>plan mode</b>, a setting where it may read files and propose but not edit; you correct the plan, which is far cheaper than correcting code later. The agent types the <b>tests</b> and you approve them; they must fail before the code exists, or they are not testing anything. The agent then writes the <b>code</b> and keeps going until your tests pass: the loop from slide 5, now exiting on a check you chose. Last, you read the <b>diff</b>, every changed line, before you run anything. Claude Code, Cursor and Copilot each have a plan mode; with any tool, the instruction "propose a plan, write no code yet" produces the same step. The restaurant analogy: order ticket, prep list, tasting before the dish leaves the kitchen.</p>
+  </aside>
+</section>
+
+<section class="slide demo">
+  <h2><span class="kicker">2 · The spec</span>The plan comes back with questions. Answer them first.</h2>
+  <ol>
+    <li>Plan mode on: <em>"Read the spec and propose a plan: which files change, which tests come first, and anything you would push back on. Write no code yet."</em></li>
+    <li>Its pushback becomes the spec's <strong>open decisions</strong>, each with a recommendation. One of the seven:</li>
+  </ol>
+  <pre><code><span class="comment"># lab/specs/logs-page.md, open decision 4</span>
+4. Level in the lab vs. in the checkpoints. Adding level to obslog.log_event would
+   be more realistic but changes four checkpoints and their tests, and backports a feature
+   no session teaches. Recommendation: the lab's table (R5), with the teaching note.</code></pre>
+  <div class="callout" data-label="Your vote"><p>Level in the <strong>checkpoints</strong>, or in the <strong>lab</strong>? Which line of slide 9's rules file decides it?</p></div>
+  <div class="callout" data-label="What you are doing"><p>Answering questions, not reading code. A decision you skip here, the agent makes for you.</p></div>
+  <aside class="learn">
+    <p>In <b>plan mode</b> the agent reads and proposes but cannot edit. The prompt asks which files change, which tests come first, and what it would push back on. For the Logs page, the pushback became the spec's seven <b>open decisions</b>, each with a recommendation; decision 4 is on the slide. A log line's level (ERROR, WARN, INFO, DEBUG) could be written by the checkpoints or worked out by the lab from the event name.</p>
+    <p class="answer">In the lab. The rules file says the lab is a harness: deleting <code>lab/</code> must change nothing in <code>checkpoints/</code>, so adding a field to the checkpoints' logs for the lab's sake breaks a standing rule, and would also change four checkpoints and their tests. Note the spec's status line: the build went ahead on the recommended answers without confirming them. Every open decision you leave unanswered is one the agent makes for you.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">2 · The spec</span>Tests are how the agent checks its work, so you choose them</h2>
+  <div class="callout plain"><p>The loop exits when its checks pass. Give it tests and it loops against your tests; give it nothing and it loops against its own guesses. You choose the <strong>test list</strong>, in plain sentences; it types the tests.</p></div>
+  <ol>
+    <li><strong>Tests first, and they must fail first.</strong> A test that passes before the code exists checks nothing.</li>
+    <li><strong>"Don't change the tests"</strong> goes in the prompt. A test rewritten to pass is a finding erased.</li>
+    <li><strong>Make every test fail once.</strong> Break a line, see red, undo, see green. <code>assert result is not None</code> stays green with the repair loop deleted.</li>
+  </ol>
+  <p class="small"><strong>In the build:</strong> the spec's "Done when" named both test files and what each covers, and listed what the tests don't cover yet, to be checked by hand. Say what isn't tested, out loud.</p>
+  <aside class="learn">
+    <p>The agent's loop stops when its checks pass, so the tests define "done", and you choose them: a <b>test list</b> is the behaviours you want locked down, written as plain sentences before any code; the agent turns each into a test. Three rules: tests first, failing first, because a test that already passes checks nothing; "don't change the tests" in the prompt, because an agent with a failing test will happily rewrite the test instead of the code; and make every test fail once on purpose, because a test that cannot go red proves nothing (<code>assert result is not None</code> survives the repair loop's deletion). The Logs page spec shows the honest version of "done": it names the two test files and what each checks, and lists what is not covered yet (the page's filters and messages, the colours' contrast), to be checked by hand.</p>
+  </aside>
+</section>
+
+<section class="slide demo">
+  <h2><span class="kicker">2 · The spec</span>Tests first, then the code</h2>
+  <ol>
+    <li><em>"Write the tests the spec's Done when lists. Don't implement anything. The tests must fail."</em> Then <code>pytest</code>: how many red?</li>
+    <li>Thumbs: does one test cover the <strong>half-written line</strong> from slide 11? If not, we say so and ask again.</li>
+    <li><em>"Implement the spec until the lab's tests pass. Don't change the tests. Run pytest before you say done."</em> Then <code>pytest</code>: green.</li>
+  </ol>
+  <div class="callout" data-label="Your vote"><p>Before step 1 runs: how many of the new tests fail before any code exists? All, some, or none?</p></div>
+  <aside class="learn">
+    <p>Two prompts, in order. The first asks for the tests the spec's "Done when" lists, and nothing else; they must fail, because the endpoint and the page do not exist yet. The class approves them, checking that one covers the edge case from the spec: a last line still being written. The second asks for the implementation until those tests pass, without changing the tests, with pytest run before "done". In class the tests are <code>lab/tests/test_logs_api.py</code> and <code>lab/tests/test_logs_ui.py</code>; <code>test_a_half_written_last_line_waits_for_its_newline</code> is the edge case, shown on slide 27.</p>
+    <p class="answer">All the new tests should fail first, since nothing they test exists yet. A test that passes before the code is written is testing something that already existed. Watch for two things in your own runs: an agent that edits a test to make it pass, and one that changes a file the spec put off limits.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">2 · The spec</span>Read the diff before you run it: five questions</h2>
+  <div class="callout plain"><p>A <strong>diff</strong> is the list of changed lines: <span class="bad">red</span> removed, <span class="good">green</span> added. Everything an agent does arrives as one. <code>git diff --staged</code>, then the five questions.</p></div>
+  <table class="small">
+    <tr><th>Question</th><th>In the Logs build, where to look</th></tr>
+    <tr><td>1 · New imports? A dependency nobody chose.</td><td>the top of <code>server.py</code>; <code>logs.js</code> loads nothing new</td></tr>
+    <tr><td>2 · Files it wasn't asked to touch? The data model, the tests, a config.</td><td><code>git diff --stat checkpoints/</code> must be empty</td></tr>
+    <tr><td>3 · The edge case. Follow one through the new lines by hand.</td><td>a torn line: shown as ERROR, not skipped</td></tr>
+    <tr><td>4 · Any error swallowed? <code>except Exception: pass</code>, a quiet <code>return None</code>.</td><td>a missing log: "no log yet", or a silent gap?</td></tr>
+    <tr><td>5 · Did it change a test to make it pass?</td><td><code>git diff</code> on <code>lab/tests/</code> since the tests commit</td></tr>
+  </table>
+  <p class="small">Green tests tell you the code does what the tests say. Only the diff tells you what else it does.</p>
+  <aside class="learn">
+    <p>A <b>diff</b> is the list of lines an edit removed (red) and added (green). Everything an agent does arrives as one, and it is read before the code is run. The five questions: new imports (a dependency nobody chose), files it was not asked to touch (the data model, the tests, a config file), the edge case (follow one through the new lines by hand), errors swallowed (an <code>except</code> that does nothing, a quiet <code>return None</code>), and tests changed to make them pass. The right column applies them to the Logs page build. Two are single commands because the spec and the order of work set them up: the spec says nothing in <code>checkpoints/</code> changes, so <code>git diff --stat checkpoints/</code> must be empty; the tests were committed before the code, so their diff since that commit must be empty.</p>
+  </aside>
+</section>
+
+<section class="slide lead">
+  <h1>Break · 10 minutes</h1>
+  <p class="subtitle">Next: how far do you let it run, and what has to be true before you loosen its permissions</p>
+  <aside class="learn">
+    <p>A ten-minute break. The third block asks how much an agent may do without asking, and which checks have to exist before it is allowed to run on its own.</p>
+  </aside>
+</section>
+
+<section class="slide demo">
+  <h2><span class="kicker">3 · Permissions</span>How much it may do without asking</h2>
+  <div class="cards">
+    <div class="card"><h4>Ask (the default)</h4><p>Every edit and every command waits for your yes. Slow, and you see everything.</p></div>
+    <div class="card"><h4>Accept edits</h4><p>Edits go in. Commands still ask. The mode for a task with tests behind it.</p></div>
+    <div class="card bad"><h4>Full auto</h4><p>Nothing asks; it runs to the end. Claude Code: bypass permissions, or YOLO.</p></div>
+  </div>
+  <div class="callout plain"><p>2025's habit was a yes to every step; 2026's is full auto, with loops that run for hours. The question is the same: <strong>what has to be true before you loosen its permissions?</strong></p></div>
+  <div class="callout watch"><p>Loosen them only as far as your automatic checks reach. Rewind exists in every tool, and git is the one that survives the session.</p></div>
+  <p class="small">Claude Code adds plan mode (no edits) and auto (a second model screens each action). Shift+Tab cycles them.</p>
+  <aside class="learn">
+    <p>Every coding agent has <b>permission modes</b>: how much it may do before it asks you. The strictest, and usually the default, is <b>ask</b>: the agent waits for your approval before each edit and each command. In the middle, <b>accept edits</b>: file changes go in without asking, commands still wait. The loosest is <b>full auto</b>: nothing asks and the agent runs until it decides it is done. Claude Code calls this mode <i>bypass permissions</i>, its nickname is YOLO, and the flag that enables it has "dangerously" in its name. Claude Code has two more modes: plan mode, where the agent reads and proposes but does not edit, and auto, where a second model screens each action before it runs. The rule for choosing: loosen the permissions only as far as your automatic checks reach. Every tool can rewind the agent's edits (in Claude Code, Esc Esc), but rewind does not cover what a command did; git does.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">3 · Permissions</span>Four safeguards, and the worry each one removes</h2>
+  <div class="cards">
+    <div class="card"><h4>Tests</h4><p>The loop's exit condition: what "done" means. Without them, done means "it runs".</p></div>
+    <div class="card"><h4>Git</h4><p>Small commits, a branch per task, rewind. What "undo" means, whatever the agent did.</p></div>
+    <div class="card"><h4>Hooks</h4><p>A command your tool runs on an event, every time. A check the agent cannot skip, guarding what it cannot change.</p></div>
+    <div class="card"><h4>A reviewer</h4><p>A colleague, or another agent in a fresh session. The one who wrote it grades its own homework.</p></div>
+  </div>
+  <div class="callout watch"><p>Full auto needs a <strong>sandbox</strong>: a container or a cloud session with no keys and no production access. Full auto on your laptop next to your <code>.env</code> is the risk, not the mode.</p></div>
+  <p class="small">We build the hooks now. The review is tonight's step 4, by hand.</p>
+  <aside class="learn">
+    <p>Four <b>safeguards</b> make a looser permission mode safe. <b>Tests</b> are the agent's exit condition: they define "done". <b>Git</b> is "undo": small commits, a branch per task, and rewind, which together cover anything the agent did. A <b>hook</b> is a command your tool runs automatically on an event (before a command, after an edit, when the agent is about to stop); it runs every time, so it is a check the agent cannot skip. A <b>reviewer</b> in a fresh session, a colleague or a separate agent, catches what the author cannot, because the agent that wrote the code reviews it with the same context that produced it. Full auto needs one more thing: a <b>sandbox</b>, a container or cloud session with no API keys and no access to production. Running in full auto on your own laptop, next to your <code>.env</code> file, is the risk.</p>
+  </aside>
+</section>
+
+<section class="slide demo">
+  <h2><span class="kicker">3 · Permissions</span>The build's two hooks: block before, send back after</h2>
+  <pre><code><span class="comment"># .claude/settings.json (timeouts dropped): two events, two commands</span>
+{"hooks": {
+  "PreToolUse":  [{"matcher": "Read|Edit|Write|Grep|Bash|PowerShell",
+                   "hooks": [{"type": "command", "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_env.py\""}]}],
+  "PostToolUse": [{"matcher": "Edit|Write",
+                   "hooks": [{"type": "command", "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/no_innerhtml.py\""}]}]}}</code></pre>
+  <div class="cards">
+    <div class="card"><h4>Before: <code>guard_env.py</code></h4><p>Runs before every read, edit or command. Does it touch a <code>.env</code> file? Exit 2: the call never runs, and the agent reads why. The model doesn't decide whether it may touch keys.</p></div>
+    <div class="card"><h4>After: <code>no_innerhtml.py</code></h4><p>Runs after every edit, so the file is already saved. <code>innerHTML</code> in the new lines? Exit 2 hands them back, and the agent rewrites them in the same turn.</p></div>
+  </div>
+  <div class="callout" data-label="Your vote"><p>The agent writes <code>row.innerHTML = msg</code> into <code>logs.js</code>. Is that line saved? What happens next?</p></div>
+  <p class="small">One rule, four places: the rules file asks, the spec repeats it, a test checks the result, a hook checks every edit. Cursor and Copilot have hooks too; a pre-commit hook and CI are the same check, later.</p>
+  <aside class="learn">
+    <p>A <b>hook</b> is a command your tool runs automatically on an event. The two from the build were written in a separate session and live in <code>slides/demos/session-03/class-hooks/</code>. <code>guard_env.py</code> is a <b>PreToolUse</b> hook: it runs before every read, search, edit or shell command, and if the call names a <code>.env</code> file it exits with code 2, which blocks the call and hands the reason to the agent. <code>no_innerhtml.py</code> is a <b>PostToolUse</b> hook: it runs after every edit, when the file is already saved, so it cannot block; exit 2 sends its message back and the agent fixes its own code in the same turn. Both match text, so both have false positives: <code>guard_env</code> also blocks a git commit whose message mentions the file. A false positive costs a rephrase; a missed key costs a rotation.</p>
+    <p class="answer">The line is saved: a hook that runs after the edit cannot undo it. The hook prints the offending line and exits 2, the agent reads it and rewrites the line with <code>textContent</code>. The same rule lives in four places: the rules file (guidance), the spec's limits (this task), <code>test_logs_js_never_writes_markup</code> (the result), and this hook (every edit).</p>
+  </aside>
+</section>
+
+<section class="slide check">
+  <h2><span class="kicker">3 · Permissions</span>You own every line you merge</h2>
+  <div class="cards">
+    <div class="card"><h4>Writing code</h4><p>Got cheap. <code>logs.js</code> alone is 817 lines, typed today.</p></div>
+    <div class="card"><h4>Checking code</h4><p>Costs what it always did. Now the slow part.</p></div>
+    <div class="card bad"><h4>The incident review</h4><p>"The agent wrote it" is not a defence. Your name is on the merge.</p></div>
+  </div>
+  <div class="callout example" data-label="Two teams' written rules"><p><strong>Jellyfin</strong> (open source): "pure vibe coding will be rejected"; if you can't explain what the LLM did, they're not interested; no <code>.claude</code> files in the repo. <strong>Anthropic's own study</strong> (January 2026, 52 developers, a new library): the group with an assistant scored 50% on the comprehension quiz against 67% without; those who delegated everything scored lowest, the few who had it explain the code it wrote scored highest.</p></div>
+  <p>Vote, thumbs per line, which your team would adopt: <strong>1</strong> every PR says which agent touched it · <strong>2</strong> no agent-written test merges before someone has seen it fail · <strong>3</strong> full auto only on a branch, in a sandbox · <strong>4</strong> the rules file is reviewed like code.</p>
+  <aside class="learn">
+    <p>Writing code got cheap, checking it did not, so checking is now the slow part, and responsibility did not move. Two teams that wrote rules down. Jellyfin, an open-source media server, rejects "pure vibe coding", requires contributors to explain what the model did, and bans LLM configuration files from its repo. Anthropic's study (January 2026, 52 developers learning an unfamiliar Python library, randomised): the assistant group scored 50% on a comprehension quiz against 67% for hand-coding; within it, those who delegated everything scored lowest and the few who had the assistant explain the code it wrote scored highest.</p>
+    <p class="answer">All four policy lines are defensible: naming agent involvement in a PR, seeing every agent-written test fail once, full auto only on a branch inside a sandbox, and reviewing changes to the rules file like code. Line 3 is the one teams argue about most.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Wrap</span>Three ideas, one question each, and today's words</h2>
+  <ol>
+    <li><strong>Context.</strong> <em>Could it point at the line?</em> If not, it guessed.</li>
+    <li><strong>The spec.</strong> <em>Did the tests exist, and fail, before the code?</em></li>
+    <li><strong>Permissions.</strong> <em>Which safeguard would have caught this, and does it run by itself?</em></li>
+  </ol>
+  <table class="small">
+    <tr><td><strong>coding agent</strong></td><td>a model in a loop with tools</td><td><strong>the plan</strong></td><td>its proposal, before any edit</td></tr>
+    <tr><td><strong>context window</strong></td><td>everything it can see</td><td><strong>the test list</strong></td><td>your sentences; it types the tests</td></tr>
+    <tr><td><strong>context engineering</strong></td><td>choosing what goes in it</td><td><strong>permissions</strong></td><td>ask · accept edits · full auto</td></tr>
+    <tr><td><strong>the rules file</strong></td><td><code>AGENTS.md</code>, every session</td><td><strong>a hook</strong></td><td>a check on an event, every time</td></tr>
+    <tr><td><strong>the spec</strong></td><td>goal, limits, edge cases, done</td><td><strong>safeguards</strong></td><td>tests, git, hooks, a reviewer</td></tr>
+  </table>
+  <p class="small muted">The agent types. You decide what it reads and what it must pass.</p>
+  <aside class="learn">
+    <p>The recap. For each idea, one question to ask yourself when working with an agent: could it point at the line that holds the fact it stated; did the tests exist and fail before the code; which safeguard would have caught the mistake, and is that safeguard automatic. The table collects today's ten words, which the rest of the course uses with exactly these meanings.</p>
+    <p class="answer">The hook's run decided three things for you: what a failed ticket means for the summary, what to check (nothing), and the table's shape. Full auto is safe when the automatic checks reach as far as the permissions you gave it, and the agent runs in a sandbox with no keys and no production access.</p>
+  </aside>
+</section>
+
+<section class="slide scoreboard">
+  <h2><span class="kicker">Wrap</span>Scoreboard: unchanged, but now it's guarded</h2>
+  <ol class="two-col">
+    <li>Sometimes it returns invalid resolution schemas. <span class="tag partial">PARTIAL</span></li>
+    <li class="done">Sometimes it sends customers a generic LLM apology instead of an answer. <span class="tag retired">RETIRED</span></li>
+    <li>Sometimes partial failures are streamed to the support agent's screen.</li>
+    <li>Retries are not always effective.</li>
+    <li>The order-lookup API may fail, time out, or return inconsistent data.</li>
+    <li>It once suggested a refund larger than the order total.</li>
+    <li>Costs spike on long ticket threads.</li>
+    <li>The same ticket can produce different resolutions.</li>
+    <li>A crash after issuing a refund left the ticket unresolved, and a retry refunded twice.</li>
+    <li>Nobody can debug why a specific run failed.</li>
+  </ol>
+  <p class="small">Week 1 done: triage, the repair loop, request-ID logging, and an agent you know how to give context, a spec and safeguards.</p>
+  <aside class="learn">
+    <p>The incident list is unchanged today. The session was about the tool that will fix the remaining incidents, and about keeping this week's fixes fixed. One limit of today's tests: they fake the model, so they check Deskhand's code, not whether a label was right. Checking labels needs real tickets with known answers, which the course adds later.</p>
+  </aside>
+</section>
+
+<section class="slide home">
+  <h2><span class="kicker">Tonight</span>Your hands on it, about 60 minutes</h2>
+  <ol>
+    <li><strong>Rules file (10 min).</strong> Copy triage into <code>work/my-triage</code>, add <code>AGENTS.md</code> and your tool's pointer file, ask it two questions, check every name.</li>
+    <li><strong>Spec, plan, tests, code (20 min).</strong> A different small feature: a <code>--ticket</code> flag. Plan first, tests first, read the diff.</li>
+    <li><strong>Your test list (15 min).</strong> The three gaps in today's triage, as plain sentences. Red is a finding. Make every green test fail once.</li>
+    <li><strong>Two safeguards (15 min).</strong> Two hooks that guard your tests, and a review by hand in a fresh session with the five questions.</li>
+  </ol>
+  <p>All the way through, keep <code>assistant-log.md</code>: one guess you caught, one rule you added, one thing a safeguard caught. Steps after the next slide, and in <code>handouts/session-03.md</code>.</p>
+  <aside class="learn">
+    <p>The homework repeats the session with your own agent, in a copy of the triage folder. Step 1 adds the rules file and tests whether the agent reads it. Step 2 runs the full spec-first loop on a new feature, a <code>--ticket</code> flag, so the answer cannot be copied from class. Step 3 is your test list for the three gaps in today's code. Step 4 adds two safeguards: the two hooks, and a review by hand in a fresh session using the five questions. Keep <code>assistant-log.md</code> throughout, three lines: a guess you caught, a rule you added, a thing a safeguard caught. The detailed steps are the slides after the divider and <code>handouts/session-03.md</code>.</p>
+  </aside>
+</section>
+
+<section class="slide lead">
+  <h1>After class</h1>
+  <p class="subtitle">Reference slides and tonight's steps. Not shown in class: open them when you have the repo.</p>
+  <aside class="learn">
+    <p>The slides from here on are reference material for reading at home: the one-line prompt's diff in full, two tests from the Logs page build, the hook files for tonight, a spec template, common agent mistakes, further reading, and the detailed steps for tonight.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Reference</span>The hook's run, in full: what one line in full auto produced</h2>
+  <pre class="small"><code><span class="good">+    # Per-category rollup, filled as results arrive: category -> list of</span>
+<span class="good">+    # (confidence, cost_usd). Failed tickets never reach it; they are already</span>
+<span class="good">+    # counted in `failures`.</span>
+<span class="good">+    by_category: dict[str, list[tuple[float, float]]] = {}</span>
+     for ticket in tickets:
+         ...
+         except errors.DeskhandError as exc:
+             ...
+             continue
+         total_cost += cost_usd
+<span class="good">+        by_category.setdefault(result.category, []).append((result.confidence, cost_usd))</span>
+         ...
+     console.print(table)
+<span class="good">+    # One row per category that actually appeared, biggest bucket first. It</span>
+<span class="good">+    # answers "what is this batch mostly about?" without reading every row.</span>
+<span class="good">+    summary = Table(title="By category")</span>
+<span class="good">+    for column in ("category", "tickets", "avg confidence", "cost"):</span>
+<span class="good">+        summary.add_column(column)</span>
+<span class="good">+    for category, rows in sorted(by_category.items(), key=lambda item: -len(item[1])):</span>
+<span class="good">+        confidences = [confidence for confidence, _ in rows]</span>
+<span class="good">+        summary.add_row(category, str(len(rows)), f"{sum(confidences) / len(rows):.2f}",</span>
+<span class="good">+                        f"${sum(cost for _, cost in rows):.4f}")</span>
+<span class="good">+    if by_category:</span>
+<span class="good">+        console.print(summary)</span></code></pre>
+  <p class="small">Practice run before class, 22 October, 60 seconds, 22 lines, no new import, no test. The agent's own summary ended: "I couldn't execute a syntax check or the CLI itself" and still began with "Done".</p>
+  <aside class="learn">
+    <p>The complete change from the one-line prompt, as produced in the practice run before class, on 22 October. It is competent code: it reuses the <code>Table</code> class already imported, sorts categories by size, and hides the table when there is nothing to show. It also decides that failed tickets do not belong in the summary, writes no test, and declares the task done without having run anything, as the agent's own closing report admits. The next slide shows the spec-first way, from the Logs page build: the tests that existed before the code.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Reference</span>The Logs build: two tests written before the code</h2>
+  <pre class="small"><code><span class="comment"># lab/tests/test_logs_api.py: the spec's edge case, as a test</span>
+def test_a_half_written_last_line_waits_for_its_newline(client, logs):
+    logs.event("02", ts(1), "r", "run.accepted", ticket_id="T-1001")
+    full = json.dumps({"ts": ts(2), "request_id": "r", "event": "run.status", "status": "running"})
+    logs.append("02", full[:25], end="")  <span class="comment"># 1 · the writer is mid-line</span>
+    first = get(client)
+    assert events(first) == ["run.accepted"]  <span class="comment"># 2 · the half line is not shown yet</span>
+    with logs.path("02").open("ab") as fh:
+        fh.write((full[25:] + "\n").encode("utf-8"))
+    assert events(get(client, after=first["cursor"])) == ["run.status"]  <span class="comment"># 3 · it arrives once whole</span>
+
+<span class="comment"># lab/tests/test_logs_ui.py: the rules file's textContent rule, as a test</span>
+def test_logs_js_never_writes_markup():
+    ...
+    assert path.exists(), "lab/static/logs.js does not exist yet"  <span class="comment"># 4 · red until the code exists</span>
+    ...                                                             <span class="comment"># the file, comments stripped</span>
+    assert "innerHTML" not in code</code></pre>
+  <p class="small">All in your repo: <code>lab/specs/logs-page.md</code>, 28 tests in <code>lab/tests/</code>, <code>lab/static/logs.js</code>.</p>
+  <aside class="learn">
+    <p>Two of the tests written before the Logs page existed. The first is the edge case from the spec on slide 11: a run is still writing its last line (1); the endpoint must not show that half line (2), and once the newline arrives, the next poll returns it whole (3). The second turns the rules file's rule into a check: it fails while <code>logs.js</code> does not exist (4), and once it does, it fails if the file uses <code>innerHTML</code> (or <code>insertAdjacentHTML</code>, a line the slide leaves out) outside a comment. The same rule is also enforced on every edit by the hook on slide 20. All 28 tests (23 for the endpoint, 5 for the page) run offline with <code>py -m pytest -q</code> inside <code>lab/</code>: each test writes its own temporary log files, and nothing starts a service or calls a model.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Reference</span>Tonight's two hooks, condensed (the full files are in the handout)</h2>
+  <pre class="small"><code><span class="comment"># .claude/settings.json</span>
+{"hooks": {
+  "PreToolUse": [{"matcher": "Edit|Write|MultiEdit", "hooks": [{"type": "command", "command": "python .claude/hooks/protect_tests.py", "timeout": 30}]}],
+  "Stop":       [{"hooks": [{"type": "command", "command": "python .claude/hooks/pytest_gate.py", "timeout": 120}]}]}}
+
+<span class="comment"># .claude/hooks/protect_tests.py: existing tests and spec.md may not change mid-run; a new test file may be written</span>
+payload = json.load(sys.stdin); target = Path(payload["tool_input"].get("file_path", ""))
+is_contract = "tests" in [p.lower() for p in target.parts] or target.name.lower() == "spec.md"
+if is_contract and not (payload["tool_name"] == "Write" and not target.exists()):
+    print(f"Blocked: {target.name} is part of the contract (tests/ and spec.md). "
+          "Change the code to satisfy the tests, or stop and say what in the spec should change.", file=sys.stderr)
+    sys.exit(2)                                   <span class="comment"># blocked, and it reads this</span>
+
+<span class="comment"># .claude/hooks/pytest_gate.py: three tries, then it reports instead of looping</span>
+counter = Path(__file__).with_name(f".gate-{payload.get('session_id', 'default')}")
+tries = int(counter.read_text()) if counter.exists() else 0
+run = subprocess.run([sys.executable, "-m", "pytest", "-q", "-x"], capture_output=True, text=True)
+if run.returncode == 0:
+    counter.unlink(missing_ok=True); sys.exit(0)    <span class="comment"># green: it may stop</span>
+if tries >= 3:
+    counter.unlink(); print("Still red after 3 tries. Stopping; report it.", file=sys.stderr); sys.exit(0)
+counter.write_text(str(tries + 1))
+print("Tests are red, so this is not done.\n" + "\n".join((run.stdout + run.stderr).splitlines()[-25:]), file=sys.stderr)
+sys.exit(2)                                       <span class="comment"># red: the stop is blocked, and it reads this</span></code></pre>
+  <p class="small">Exit code 2 is the convention: "blocked, here is why". Exit 1 is an ordinary error and does not block. Start the agent from the folder that holds <code>.claude/</code>, with your venv active, so <code>python</code> is the one with pytest.</p>
+  <aside class="learn">
+    <p>Tonight's two hooks, condensed; the handout prints the full files to copy into <code>work/my-triage/.claude/</code>. They guard a different thing from the class's two on slide 20: these protect the tests, the contract the agent works against. The settings file registers the contract hook for every Edit or Write and the Stop hook for the Stop event. The contract hook blocks edits to existing test files and to <code>spec.md</code> (a brand-new test file may still be written, so "tests first" works) and prints the reason, which the agent reads. The Stop hook runs pytest when the agent wants to stop: green exits 0 and lets it stop; red prints the last lines of output and exits 2, which blocks the stop. A small counter file limits that to three tries per session, after which the hook exits 0 with a message, so an unfixable test ends in a report rather than a loop. Start the agent from the folder that holds <code>.claude/</code>, with your virtual environment active, so that <code>python</code> is the one with pytest installed.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Reference</span>A spec template, and the rules file for a project that doesn't exist yet</h2>
+  <div class="cards">
+    <div class="card"><h4><code>spec.md</code>, one task</h4><pre><code># spec.md: &lt;the task in one line&gt;
+## What it does
+## Limits (what must not change, no new deps)
+## Edge cases (one failed ticket, an empty input)
+## Done when (which tests pass, what stays the same)</code></pre></div>
+    <div class="card"><h4><code>AGENTS.md</code>, a new project</h4><pre><code># &lt;Project&gt;
+## Business requirements   (what it is for, who uses it)
+## Technical decisions     (stack, layout, what is out)
+## Strategy                (plan with success criteria,
+                            build, test, done when running)
+## Coding standards        (short, checkable, no emojis)</code></pre></div>
+  </div>
+  <p class="small">For a codebase that exists, the requirements live in the code and the spec; the rules file holds only the rules. For a project started from scratch, there is no code yet to hold them, so the requirements and the technical decisions go in the rules file too. Both templates are in the course notes.</p>
+  <aside class="learn">
+    <p>Two templates. The spec template is the four-part structure from slide 11 with the parts named: what it does, limits, edge cases, done when. The second template is for a project started from scratch, where there is no code yet for the rules to point at; it is the pattern Ed Donner's course uses in its project repos: business requirements, technical decisions, a strategy section that tells the agent to plan with success criteria, build, test and finish with the server running, and short checkable coding standards. For a codebase that already exists, such as Deskhand, requirements belong in the spec for each task and the rules file stays small. A full spec written to this structure, with its requirements, limits, edge cases, done-when and open decisions, is <code>lab/specs/logs-page.md</code>.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Reference</span>Where agents go wrong: six patterns to look for</h2>
+  <div class="cards">
+    <div class="card"><h4>Plausible but wrong</h4><p>Reads perfectly, fails one case: the summary without its FAILED row.</p></div>
+    <div class="card"><h4>Invented names</h4><p>Calls <code>llm.complete()</code>. The real one is <code>structured_<wbr>completion</code>.</p></div>
+    <div class="card"><h4>Does too much</h4><p>"While I was there, I renamed <code>sentiment</code> to <code>tone</code>."</p></div>
+  </div>
+  <div class="cards">
+    <div class="card bad"><h4>Rules in another file</h4><p><code>errors.py</code> says every error has a code. It writes <code>raise ValueError</code>, and <code>main.py</code> crashes on one bad ticket.</p></div>
+    <div class="card bad"><h4>Done without running</h4><p>"Done" with no test run, as in the hook. A rules line and a hook both catch it.</p></div>
+    <div class="card bad"><h4>Prompt injection</h4><p>Pastes ticket text into instructions. Follows a comment in a file as if it were your request.</p></div>
+  </div>
+  <p class="small">Top row: slips you'll meet tonight. Bottom row: slow your review down when correctness depends on something it didn't read, or read something it shouldn't have obeyed.</p>
+  <aside class="learn">
+    <p>Six recurring agent mistakes. Top row, the everyday slips: code that reads well and fails one case (the summary without its FAILED row), a plausible function name that does not exist, and unrequested changes made "while I was there". Bottom row, the ones that need a slower review: a convention that lived in a file the agent did not read (every Deskhand error carries a code; a bare <code>ValueError</code> escapes <code>main.py</code>'s handler and crashes the batch), "done" declared without running anything, and <b>prompt injection</b>: text in its context that steered it, whether customer text pasted into a prompt or an instruction found inside a file and obeyed as if you had written it.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Reference</span>Where to go deeper</h2>
+  <div class="cards">
+    <div class="card"><h4>The course today was cut from</h4><p>Ed Donner, <em>AI Coder: Vibe Coder to Agentic Engineer in 3 Weeks</em> (Udemy). Week 1: the tools and context engineering. Week 2: Claude Code, MCP, skills, hooks, reviewer agents. Week 3: subagents, sandboxes, agent teams, a capstone built by agents.</p></div>
+    <div class="card"><h4>The words</h4><p>Karpathy's vibe coding post (February 2025). Willison's vibe engineering post (October 2025). Anthropic, <em>How AI assistance impacts the formation of coding skills</em> (January 2026). Jellyfin's LLM development policy.</p></div>
+    <div class="card"><h4>The tool</h4><p>Claude Code docs: memory and <code>CLAUDE.md</code> imports, permission modes, hooks, plan mode. The <code>AGENTS.md</code> convention at agents.md. Agent Skills open standard at agentskills.io.</p></div>
+  </div>
+  <p class="small">Session 6 picks up what needs its own time: a reviewer subagent with its own fresh context, giving the agent tools and procedures, running several agents at once, and sandboxes.</p>
+  <aside class="learn">
+    <p>Sources and further reading. The structure of this session follows Ed Donner's Udemy course, which spends three weeks on the same ground: tools and context engineering, then Claude Code's features (MCP servers, skills, hooks, reviewer agents), then subagents, sandboxes and teams of agents. The vocabulary comes from Andrej Karpathy's post that coined vibe coding, Simon Willison's post on vibe engineering, Anthropic's study on how assistance affects skill formation, and Jellyfin's written LLM policy. For Claude Code itself, the official docs on memory files, permission modes, hooks and plan mode cover everything the demos used; the <code>AGENTS.md</code> convention and the Agent Skills standard are the cross-tool pieces.</p>
+  </aside>
+</section>
+
+<section class="slide home">
+  <h2><span class="kicker">Tonight · the plan</span>About 60 minutes, four steps, one log</h2>
+  <table>
+    <tr><th>Step</th><th>What you do</th><th>Time</th></tr>
+    <tr><td>1</td><td>Copy <code>01-triage</code>, add the rules file and your tool's pointer, ask two questions</td><td>10 min</td></tr>
+    <tr><td>2</td><td>Spec, plan, tests, code, diff: the <code>--ticket</code> flag</td><td>20 min</td></tr>
+    <tr><td>3</td><td>Your test list for the three gaps; make every green test fail once; commit</td><td>15 min</td></tr>
+    <tr><td>4</td><td>Two safeguards: the two hooks, and a review by hand in a fresh session</td><td>15 min</td></tr>
+    <tr><td>stretch</td><td>Bug hunt: plant bugs in a classmate's copy, or your own</td><td></td></tr>
+  </table>
+  <div class="callout info" data-label="All the way through"><p>Keep <code>assistant-log.md</code>: one guess you caught, one rule you added, one thing a safeguard caught. Bring two lines on Monday.</p></div>
+  <aside class="learn">
+    <p>The plan for tonight. Step 2, the spec-first loop on your own feature, is the one to protect if time is short; steps 3 and 4 can wait for the weekend. Keep the log as you go: it is the evidence of what the agent got wrong and which habit caught it, and two lines of it open Monday's session.</p>
+  </aside>
+</section>
+
+<section class="slide home">
+  <h2><span class="kicker">Tonight · step 1 · 10 min</span>Copy, add the rules file, and test whether the agent reads it</h2>
+  <pre><code>mkdir work                        <span class="comment"># in deskhand-workshop, venv active, PowerShell</span>
+cp -r checkpoints/01-triage work/my-triage
+cd work/my-triage
+python -m pytest                  <span class="comment"># expect: 18 passed</span></code></pre>
+  <ol>
+    <li>Add <code>AGENTS.md</code> with the eight rules from the handout, and your tool's pointer: Claude Code <code>CLAUDE.md</code> with the line <code>@AGENTS.md</code>; Copilot <code>.github/copilot-instructions.md</code>; Cursor <code>.cursor/rules/deskhand.mdc</code>. Codex reads <code>AGENTS.md</code> directly.</li>
+    <li>Ask: <em>"How does the repair loop in triage.py work?"</em> Check every name it gives against the file. <code>MAX_REPAIR_ATTEMPTS = 1</code>, <code>LLM_MALFORMED_OUTPUT</code> and <code>REPAIR_EXHAUSTED</code> are real; a retry library or backoff is a guess.</li>
+    <li>Ask: <em>"Where is the run history, and what does the last line say?"</em> It should open <code>logs/runs.jsonl</code>, because the rules file says so.</li>
+  </ol>
+  <div class="callout watch"><p>Keep the folder depth: a copy on your Desktop passes its tests, then <code>main.py</code> can't find <code>tickets.json</code>.</p></div>
+  <aside class="learn">
+    <p>Make a working copy of the triage checkpoint at the same folder depth (the code finds <code>shared/data/tickets.json</code> two folders up), run the tests, then add the rules file and the pointer file your tool expects. The two questions test what is in its context: the first checks whether the agent's description of the repair loop names things that exist in <code>triage.py</code>; the second checks whether it read the rules file at all, since only that file says where the run log lives. Anything it invents is the first line of your log.</p>
+  </aside>
+</section>
+
+<section class="slide home">
+  <h2><span class="kicker">Tonight · step 2 · 20 min</span>Spec, plan, tests, code, diff: the <code>--ticket</code> flag</h2>
+  <pre class="small"><code><span class="comment"># spec.md: triage one ticket from the command line</span>
+What it does: `python main.py --ticket T-1001` triages only that ticket and prints the same
+  table with one row. Without the flag, main.py behaves exactly as before.
+Limits: argparse from the standard library, no new dependencies. Don't change classify_ticket()
+  or models.py.
+Edge cases: an unknown id prints one line naming the id, makes no model call, exits with code 1,
+  no traceback. Put the lookup in a pure function select_tickets(tickets, ticket_id).
+Done when: tests/test_select.py passes, and every other test gives the same result as before.</code></pre>
+  <ol>
+    <li>Plan mode, or <em>"propose a plan, write no code yet"</em>. Check the plan against the four parts.</li>
+    <li><em>"Write tests/test_select.py from spec.md. Don't implement anything. The tests must fail."</em> One test must cover the unknown id.</li>
+    <li><em>"Implement spec.md until tests/test_select.py passes. Don't change the tests. Run pytest before you say done."</em></li>
+    <li><code>git add .</code> then <code>git diff --staged</code>: the five questions, before you run <code>main.py</code>.</li>
+  </ol>
+  <aside class="learn">
+    <p>The same five steps as in class, on a feature that was not built in class: a <code>--ticket</code> flag that triages one ticket. The spec has the four parts; the edge case is an unknown id, which must produce one line and exit code 1 without calling the model. Get a plan first and check it against the spec, then tests only (they must fail, and one must cover the unknown id), then the implementation without changing the tests, then stage everything and read the staged diff with the five questions before running <code>main.py</code>. Running <code>main.py --ticket T-1001</code> makes one real model call, a fraction of a cent.</p>
+  </aside>
+</section>
+
+<section class="slide home">
+  <h2><span class="kicker">Tonight · step 3 · 15 min</span>Your test list: the three gaps, then make every test fail once</h2>
+  <p>Write <code>test-list.md</code> in plain sentences, no code:</p>
+  <ul>
+    <li>A confidence outside 0..1, such as <code>1.7</code>, is rejected.</li>
+    <li>When a repair happens, the cost adds up both calls.</li>
+    <li>Every failure, including a rate limit, leaves a line in <code>runs.jsonl</code> with its error code.</li>
+    <li>One line of your own.</li>
+  </ul>
+  <pre><code>Write pytest tests in tests/test_triage_extra.py, one per line of test-list.md.
+Copy the pattern in tests/test_triage.py: monkeypatch llm.structured_completion
+with a fake. No network calls. Don't change triage.py or models.py.</code></pre>
+  <p class="small">Expect the first three to go <span class="bad">red</span>: findings, not broken tests. Mark them <code>@pytest.mark.xfail(reason="gap: ...", strict=True)</code>. Then break one line of the code for each green test, see red, undo. A test that never goes red: fix it or delete it, and count them. Commit.</p>
+  <aside class="learn">
+    <p>The test list for three gaps in the triage code: confidence has no bounds (a comment is not a check), the cost of a broken first attempt is never added, and a rate limit is passed up without a log line. The agent writes one test per sentence, following the existing offline pattern. The first three go red against today's code, which is the finding; mark them as expected failures rather than deleting them, and do not let the agent "fix" <code>triage.py</code> to turn them green. Then press the test button on every green test: break a line, see red, undo. Count the tests you could not make fail. Commit the suite.</p>
+  </aside>
+</section>
+
+<section class="slide home">
+  <h2><span class="kicker">Tonight · step 4 · 15 min</span>Two safeguards: the hooks, and a reviewer</h2>
+  <ol>
+    <li><strong>The hooks.</strong> Claude Code: copy <code>settings.json</code>, <code>hooks/protect_tests.py</code> and <code>hooks/pytest_gate.py</code> from the handout into <code>work/my-triage/.claude/</code>, start the agent from that folder, and ask for a change that contradicts your spec: <em>"Change select_tickets() so an unknown id returns an empty list instead of exiting."</em> Watch the edit to the test get blocked, and the stop get blocked if a test is red. Other tools: a pre-commit hook that runs <code>python -m pytest -q</code>, or your tool's own hooks.</li>
+    <li><strong>The reviewer.</strong> A fresh session, nothing in its context but the diff: <code>git diff --staged &gt; review.diff</code>, then <em>"Review review.diff with these five questions: …"</em> (slide 16). Does a reviewer that didn't write the code find anything the author missed?</li>
+  </ol>
+  <div class="callout example" data-label="Done when"><p>A hook has blocked the agent at least once, and <code>assistant-log.md</code> has its three lines: a guess you caught, a rule you added, a thing a safeguard caught.</p></div>
+  <aside class="learn">
+    <p>Two safeguards to add to your copy. The two hooks from slide 28 go into <code>work/my-triage/.claude/</code>; start the agent from that folder and ask for a change that contradicts your spec, so you see the contract hook block the edit to the test and, if a test goes red, the Stop hook block the stop. Users of other tools get the same effect from a pre-commit hook that runs pytest, or from their tool's own hook feature. The review is done by hand this week: a fresh session whose context holds nothing but the staged diff and the five questions, so the reviewer did not write the code it reviews. Finish when a hook has blocked the agent at least once and your log has its three lines.</p>
+  </aside>
+</section>
+
+<section class="slide home">
+  <h2><span class="kicker">Tonight · stretch</span>The bug hunt</h2>
+  <p>Plant two bugs in a classmate's <code>triage.py</code>, or your own. Which does the suite catch?</p>
+  <div class="cards">
+    <div class="card good"><h4>Easy plants (the shipped tests catch these)</h4><ul><li><code>MAX_REPAIR_ATTEMPTS = 5</code></li><li>The repair message drops the error detail</li><li>Return <code>None</code> instead of raising <code>REPAIR_EXHAUSTED</code></li></ul></div>
+    <div class="card bad"><h4>Sneaky plants (try these)</h4><ul><li>Timeouts get re-prompted like broken output</li><li>The <code>triage.failed</code> log line is gone</li><li>The "untrusted customer text" line is cut from <code>SYSTEM_PROMPT</code></li></ul></div>
+  </div>
+  <div class="callout watch"><p>A plant that survives means a missing test. Add the sentence to the test list; the agent may type the code.</p></div>
+  <aside class="learn">
+    <p>A way to measure your suite: plant two bugs on purpose and see which ones the tests catch. The left column breaks <code>test_repair_exhausted</code> or <code>test_malformed_then_repaired</code>. The right column survives the shipped suite, because no test covers timeouts, the log line written when the repair runs out, or the prompt's "untrusted customer text" line.</p>
+    <p class="answer">The plants that survive are the ones around behaviours nobody put on the test list. Each survivor is a missing sentence; add it to the list and let the agent type the test.</p>
+  </aside>
+</section>
+
+</main>
+</body>
+</html>

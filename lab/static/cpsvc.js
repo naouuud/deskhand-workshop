@@ -512,7 +512,7 @@
     var items = [];
     var guardRow = t.nodes.filter(function (n) { return n.node === "guard_input"; })[0];
     var nemo = t.guard === "nemo";
-    items.push({ ok: null, text: "input guard: " + (nemo ? "NeMo Guardrails' self check input rail on every ticket (guardrails_nemo.py, rails/)" : "regex pre-gate, LLM classifier only on a hit (guardrails.py)") });
+    items.push({ ok: null, text: "input guard: " + (nemo ? "the NeMo guard: NeMo Guardrails' self check input rail on every ticket (guardrails_nemo.py, rails/)" : "the pattern guard: regex patterns, an LLM classifier only on a hit (guardrails.py)") });
     var where = f.guard_input && f.guard_input.source && f.guard_input.source !== "ticket" ? " on the " + f.guard_input.source : "";
     if (f.guard_input) items.push({ ok: true, text: "input guard tripped" + where + ": " + f.guard_input.reason });
     else if (guardRow) items.push({ ok: true, text: "input guard passed" + (nemo ? " (the rail judged it genuine; one LLM call)" : guardRow.cost_delta_usd ? " (a heuristic hit; the LLM classifier cleared it)" : " (no heuristic hit, so no LLM call was spent)") });

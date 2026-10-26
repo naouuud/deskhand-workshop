@@ -13,8 +13,8 @@
    Every later file reads L.S and the helpers below and hangs its own
    functions on L: setup.js (health, Setup, checkpoint cards), picker.js
    (sidebar), cp00.js / cp01.js / cpsvc.js (live view and final report per
-   checkpoint), simple.js (the plain-words copy of every report), and
-   views.js last (tabs, routing, boot). A file may call an L function that
+   checkpoint), simple.js (the plain-words copy of every report), logs.js
+   (the Logs view), and views.js last (tabs, routing, boot). A file may call an L function that
    a later file defines, as long as the call happens after boot. */
 window.L = (function () {
   "use strict";
