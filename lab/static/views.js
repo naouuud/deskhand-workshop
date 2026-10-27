@@ -1,9 +1,10 @@
 /* Deskhand Lab — the views: Run, Compare, Repeat, Incidents; routing; boot. */
 
 /* Loaded last, because it wires the buttons in index.html and boots the page
-   with everything the other files put on L. It owns the five tabs and the
-   hash routes (#run, #compare, #repeat, #incidents, #run/<lab run_id>, and
-   #logs?<filters>, whose view lives in logs.js).
+   with everything the other files put on L. It owns the seven tabs and the
+   hash routes (#run, #compare, #repeat, #incidents, #run/<lab run_id>,
+   #logs?<filters>, whose view lives in logs.js, #orders, in orders.js, and
+   #state?cp=<id>&run=<request_id>, in state.js).
 
    A run, end to end: startRun() builds the body (ticket + checkpoint
    options), L.report() lays out an empty Simple / Detailed pair, and
@@ -28,7 +29,15 @@
     jsonish = L.jsonish,
     panel = L.panel;
 
-  var VIEWS = ["run", "compare", "repeat", "incidents", "logs"];
+  var VIEWS = [
+    "run",
+    "compare",
+    "repeat",
+    "incidents",
+    "logs",
+    "orders",
+    "state",
+  ];
   // 02, 03 and 04 are HTTP services; 00 and 01 run as a subprocess per run.
   // Checkpoint ids are two-digit strings, so string comparison orders them.
   var isSvc = function (cp) {
@@ -232,14 +241,20 @@
 
   // Logs is about every checkpoint at once, so it hides the ticket picker and
   // the selected-ticket strip (body.view-logs in lab.css) and stops its live
-  // tail when another view opens.
+  // tail when another view opens. Orders keeps the picker (the selected
+  // ticket's order is shown first there) and stops polling the same way.
+  // Saved state is about every run of a service, so it hides the picker
+  // too (body.view-state) and stops its polling the same way.
   function setView(v) {
     S.view = v;
     VIEWS.forEach(function (name) {
       $("view-" + name).hidden = name !== v;
     });
     document.body.classList.toggle("view-logs", v === "logs");
+    document.body.classList.toggle("view-state", v === "state");
     if (v !== "logs") L.logs.hide();
+    if (v !== "orders") L.orders.hide();
+    if (v !== "state") L.state.hide();
     var tabs = document.querySelectorAll(".tab");
     for (var i = 0; i < tabs.length; i++) {
       var on = tabs[i].dataset.view === v;
@@ -281,16 +296,24 @@
       L.logs.show(h);
       return;
     }
+    // #state?cp=03&run=<request_id>: that service, with that run open.
+    if (h.split("?")[0] === "state") {
+      setView("state");
+      L.state.show(h);
+      return;
+    }
     setView(VIEWS.indexOf(h) !== -1 ? h : "run");
+    if (S.view === "orders") L.orders.show();
   }
 
   window.addEventListener("hashchange", route);
   var tabEls = document.querySelectorAll(".tab");
   for (var ti = 0; ti < tabEls.length; ti++) {
-    // Back to Logs keeps the filters it had.
+    // Back to Logs keeps the filters it had, back to Saved state its checkpoint.
     tabEls[ti].onclick = function () {
+      var v = this.dataset.view;
       location.hash =
-        this.dataset.view === "logs" ? L.logs.hash() : this.dataset.view;
+        v === "logs" ? L.logs.hash() : v === "state" ? L.state.hash() : v;
     };
   }
 
@@ -930,6 +953,134 @@
     ],
   ];
 
+  // The postmortem table: one row per [label, fn] in rows, one column per
+  // {key, name} in cols. traces[key] is the finished trace, {failed: true},
+  // or missing while that run is still going (a spinner).
+  function cmpTable(rows, cols, traces) {
+    var tbl = el("table", "tbl");
+    var hr = el("tr");
+    hr.appendChild(el("th", null, ""));
+    cols.forEach(function (c) {
+      hr.appendChild(el("th", null, c.name));
+    });
+    tbl.appendChild(hr);
+    rows.forEach(function (row) {
+      var tr = el("tr", "rowhead");
+      tr.appendChild(el("td", null, row[0]));
+      cols.forEach(function (c) {
+        var td = el("td", "mono clip");
+        var t = traces[c.key];
+        if (!t) td.appendChild(el("span", "spinner"));
+        else if (t.failed) td.textContent = "lab error";
+        else {
+          var v = row[1](t.summary, t);
+          if (v instanceof Node) td.appendChild(v);
+          else td.textContent = v;
+        }
+        tr.appendChild(td);
+      });
+      tbl.appendChild(tr);
+    });
+    return tbl;
+  }
+
+  // One run's column, drawn while it runs. The preview is the one thing that
+  // checkpoint makes visible as it goes: 00's raw stdout, 01's attempts, the
+  // services' reply. done(trace) swaps in the result and a link to the full
+  // report; fail(err) shows the lab's error. Compare and the incident board
+  // both use it.
+  function liveColumn(parent, title, cp) {
+    var col = panel({ title: title, sub: "running…" });
+    parent.appendChild(col.root);
+    var status = el("div", "small mono");
+    var term = el("pre", "terminal");
+    var reply = el("div", "reply muted", "…");
+    if (cp === "00") col.body.appendChild(term);
+    else if (cp === "01") col.body.appendChild(status);
+    else col.body.appendChild(reply);
+    var text = "",
+      replyText = "";
+    return {
+      col: col,
+      onEvent: function (ev) {
+        if (ev.type === "stdout") {
+          text += ev.text;
+          term.textContent = text;
+          term.scrollTop = term.scrollHeight;
+        } else if (ev.type === "attempt.finished" && cp === "01")
+          status.appendChild(
+            el(
+              "div",
+              ev.error ? "bad" : "good",
+              "attempt " +
+                ev.n +
+                (ev.error ? " ← " + ev.error.code : " ← parsed"),
+            ),
+          );
+        else if (ev.type === "request_id") {
+          if (col.sub) col.sub.textContent = "request " + ev.request_id;
+        } else if (ev.type === "sse" && ev.event === "node.started") {
+          if (col.sub) col.sub.textContent = ev.data.node;
+        } else if (ev.type === "sse" && ev.event === "reply.delta") {
+          if (!replyText) {
+            reply.textContent = "";
+            reply.classList.remove("muted");
+          }
+          replyText += ev.data.text || "";
+          reply.textContent = replyText;
+        } else if (ev.type === "approval.decided") {
+          if (col.sub)
+            col.sub.textContent =
+              "approval gate: " +
+              (ev.approved ? "approved" : "rejected") +
+              " automatically";
+        }
+      },
+      done: function (t) {
+        var info = L.outcomeInfo(t);
+        if (col.sub)
+          col.sub.textContent =
+            info[0] +
+            " · " +
+            usd(t.summary.cost_usd) +
+            " · " +
+            ms(t.summary.latency_ms);
+        if (cp === "01") {
+          status.textContent = "";
+          add(
+            status,
+            L.pre(
+              t.result
+                ? JSON.stringify(t.result, null, 2)
+                : t.error
+                  ? t.error.code + "\n\n" + (t.user_message || "")
+                  : t.crash || "",
+              "short",
+            ),
+          );
+        } else if (cp >= "02") {
+          var v = L.svcVerdict(t);
+          reply.textContent = v[0];
+          reply.classList.remove("muted");
+        }
+        var b = el("button", "btn btn-sm", "open the full report →");
+        b.type = "button";
+        b.style.marginTop = "8px";
+        b.onclick = function () {
+          openInRun(t);
+        };
+        col.body.appendChild(b);
+      },
+      fail: function (err) {
+        col.body.appendChild(
+          L.errorPanel(err.message, err.detail, {
+            needs_service: err.needs_service,
+          }),
+        );
+      },
+    };
+  }
+
   // With 04 ticked, the guard picker turns it into one or two columns
   // ("04+heuristic", "04+nemo"), so both guards can be compared on one ticket.
   $("cmp-btn").onclick = function () {
@@ -980,127 +1131,26 @@
       "repeat(" + cps.length + ", minmax(0, 1fr))";
     add(out, colsBox);
 
+    var cols = cps.map(function (cp) {
+      return { key: cp, name: colName(cp) };
+    });
     function renderTable() {
       tableBox.textContent = "";
-      var tbl = el("table", "tbl");
-      var hr = el("tr");
-      hr.appendChild(el("th", null, ""));
-      cps.forEach(function (cp) {
-        hr.appendChild(el("th", null, colName(cp)));
-      });
-      tbl.appendChild(hr);
-      CMP_ROWS.forEach(function (row) {
-        var tr = el("tr", "rowhead");
-        tr.appendChild(el("td", null, row[0]));
-        cps.forEach(function (cp) {
-          var td = el("td", "mono clip");
-          var t = traces[cp];
-          if (!t) td.appendChild(el("span", "spinner"));
-          else if (t.failed) td.textContent = "lab error";
-          else {
-            var v = row[1](t.summary, t);
-            if (v instanceof Node) td.appendChild(v);
-            else td.textContent = v;
-          }
-          tr.appendChild(td);
-        });
-        tbl.appendChild(tr);
-      });
-      tableBox.appendChild(tbl);
+      tableBox.appendChild(cmpTable(CMP_ROWS, cols, traces));
     }
     renderTable();
 
-    // Each column's preview is the one thing that checkpoint makes visible
-    // while it runs: 00's raw stdout, 01's attempts, the services' reply.
     var jobs = cps.map(function (cp) {
-      var col = panel({ title: colName(cp), sub: "running…" });
-      colsBox.appendChild(col.root);
-      var status = el("div", "small mono");
-      var term = el("pre", "terminal");
-      var reply = el("div", "reply muted", "…");
-      if (cp === "00") col.body.appendChild(term);
-      else if (cp === "01") col.body.appendChild(status);
-      else col.body.appendChild(reply);
-      var text = "",
-        replyText = "";
-      return L.runStream(runBody(cp, approval), function (ev) {
-        if (ev.type === "stdout") {
-          text += ev.text;
-          term.textContent = text;
-          term.scrollTop = term.scrollHeight;
-        } else if (ev.type === "attempt.finished" && cp === "01")
-          status.appendChild(
-            el(
-              "div",
-              ev.error ? "bad" : "good",
-              "attempt " +
-                ev.n +
-                (ev.error ? " ← " + ev.error.code : " ← parsed"),
-            ),
-          );
-        else if (ev.type === "request_id") {
-          if (col.sub) col.sub.textContent = "request " + ev.request_id;
-        } else if (ev.type === "sse" && ev.event === "node.started") {
-          if (col.sub) col.sub.textContent = ev.data.node;
-        } else if (ev.type === "sse" && ev.event === "reply.delta") {
-          if (!replyText) {
-            reply.textContent = "";
-            reply.classList.remove("muted");
-          }
-          replyText += ev.data.text || "";
-          reply.textContent = replyText;
-        } else if (ev.type === "approval.decided") {
-          if (col.sub)
-            col.sub.textContent =
-              "approval gate: " +
-              (ev.approved ? "approved" : "rejected") +
-              " automatically";
-        }
-      })
+      var col = liveColumn(colsBox, colName(cp), cp);
+      return L.runStream(runBody(cp, approval), col.onEvent)
         .then(function (t) {
           traces[cp] = t;
-          var info = L.outcomeInfo(t);
-          if (col.sub)
-            col.sub.textContent =
-              info[0] +
-              " · " +
-              usd(t.summary.cost_usd) +
-              " · " +
-              ms(t.summary.latency_ms);
-          if (cp === "01") {
-            status.textContent = "";
-            add(
-              status,
-              L.pre(
-                t.result
-                  ? JSON.stringify(t.result, null, 2)
-                  : t.error
-                    ? t.error.code + "\n\n" + (t.user_message || "")
-                    : t.crash || "",
-                "short",
-              ),
-            );
-          } else if (cp >= "02") {
-            var v = L.svcVerdict(t);
-            reply.textContent = v[0];
-            reply.classList.remove("muted");
-          }
-          var b = el("button", "btn btn-sm", "open the full report →");
-          b.type = "button";
-          b.style.marginTop = "8px";
-          b.onclick = function () {
-            openInRun(t);
-          };
-          col.body.appendChild(b);
+          col.done(t);
           renderTable();
         })
         .catch(function (err) {
           traces[cp] = { failed: true };
-          col.body.appendChild(
-            L.errorPanel(err.message, err.detail, {
-              needs_service: err.needs_service,
-            }),
-          );
+          col.fail(err);
           renderTable();
         });
     });
@@ -1530,7 +1580,8 @@
 
   /* ── Incidents ─────────────────────────────────────────── */
   // The incident board (GET /api/incidents): each production incident gets a
-  // "Reproduce on 00" button and a "See it retired on <checkpoint>" button.
+  // "Reproduce on 00" button, a "See it retired on <checkpoint>" button, and
+  // "Run 00 and <checkpoint> side by side" (sideBySide below).
   // A spec names the ticket ({ticket_id} or {incident}) and, for some, the
   // Repeat view or a fault-injection level.
 
@@ -1554,6 +1605,230 @@
       return;
     }
     L.runOn(cp, { inject_truncate: spec.inject_truncate });
+  }
+
+  /* The side-by-side run: 00 and the fixing checkpoint at once, under the
+     reasoning (inc.fix, from INCIDENT_FIXES in server.py) and the Compare
+     rows that show the fix on these two runs. Each side runs its own spec,
+     so the request bodies are built from the spec, not from the sidebar. */
+
+  function specBody(spec, cp, approval) {
+    var body = spec.ticket_id
+      ? { ticket_id: spec.ticket_id }
+      : { incident: spec.incident };
+    body.checkpoint = cp;
+    if (cp === "01") body.inject_truncate = spec.inject_truncate || 0;
+    if (isSvc(cp)) body.approval = approval;
+    if (cp === "04") body.guard = $("guard").value;
+    return body;
+  }
+
+  function setBothButtons(disabled) {
+    var bs = document.querySelectorAll("#incident-board .inc-both");
+    for (var i = 0; i < bs.length; i++) bs[i].disabled = disabled;
+  }
+
+  // Both checkpoints must be able to run before anything is spent; then the
+  // usual cost confirmation (two real runs). The sidebar shows the ticket.
+  function runBoth(inc) {
+    var out = $("incident-out"),
+      cp = inc.retired.checkpoint;
+    if (S.busy.incident || !L.selectSpec(inc.reproduce)) return;
+    var down = ["00", cp].filter(function (c) {
+      return !serviceReady(c);
+    });
+    if (down.length) {
+      out.textContent = "";
+      down.forEach(function (c) {
+        add(
+          out,
+          isSvc(c)
+            ? L.errorPanel("Checkpoint " + c + " is not running yet.", null, {
+                needs_service: c,
+              })
+            : L.errorPanel(
+                "Checkpoint " +
+                  c +
+                  " cannot call the LLM yet: fill .env first (see Setup).",
+              ),
+        );
+      });
+      out.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    L.confirmSpend(
+      "Incident #" + inc.n + ": 00 and " + cp + " side by side",
+      ["00", cp],
+      1,
+    )
+      .then(function (ok) {
+        if (ok) sideBySide(inc);
+      })
+      .catch(function (e) {
+        out.textContent = "";
+        add(out, L.errorPanel(e.message));
+      });
+  }
+
+  // The reasoning comes first and is on screen while the runs go: why 00
+  // breaks, then what the fixing checkpoint changed, each with its code link.
+  function fixPanel(inc) {
+    var r = inc.retired,
+      fix = inc.fix || {};
+    var p = panel({
+      title:
+        "Incident #" +
+        inc.n +
+        ": how " +
+        L.cpName(r.checkpoint) +
+        " " +
+        (r.partial ? "narrows" : "fixes") +
+        " it",
+      sub: inc.text,
+      chips: [
+        L.chip(
+          r.partial ? "narrowed" : "retired",
+          r.partial ? "chip-warn" : "chip-good",
+        ),
+      ],
+    });
+    var broke = el("div", "inc-why inc-broke");
+    add(
+      broke,
+      el("h4", null, "Why 00 breaks"),
+      el("p", null, fix.broke || inc.watch),
+      L.citesRow(fix.broke_cites),
+    );
+    var fixed = el("div", "inc-why inc-fixed");
+    var ol = el("ol", "inc-steps");
+    (fix.steps || []).forEach(function (s) {
+      add(ol, el("li", null, s.text + " ", L.citeLink(s.cite, null, true)));
+    });
+    add(fixed, el("h4", null, "What " + r.checkpoint + " changed"), ol);
+    var grid = el("div", "inc-how");
+    add(grid, broke, fixed);
+    p.body.appendChild(grid);
+    if (fix.still_open)
+      add(p.body, L.note("warn", "Still open: " + fix.still_open));
+    return p.root;
+  }
+
+  function sideBySide(inc) {
+    var out = $("incident-out"),
+      r = inc.retired,
+      fix = inc.fix || {};
+    var approval = $("inc-approval").value;
+    S.busy.incident = true;
+    setBothButtons(true);
+    out.textContent = "";
+    var same = specLabel(inc.reproduce) === specLabel(r);
+    var sides = [
+      {
+        key: "before",
+        cp: "00",
+        spec: inc.reproduce,
+        name:
+          "Before · " +
+          L.cpName("00") +
+          (same ? "" : " · " + specLabel(inc.reproduce)),
+      },
+      {
+        key: "after",
+        cp: r.checkpoint,
+        spec: r,
+        name:
+          "After · " +
+          L.cpName(r.checkpoint) +
+          (same ? "" : " · " + specLabel(r)),
+      },
+    ];
+    add(out, fixPanel(inc));
+
+    var rows = CMP_ROWS.filter(function (row) {
+      return (fix.evidence || []).indexOf(row[0]) !== -1;
+    });
+    var evid = panel({
+      title: "What these two runs show",
+      sub: same
+        ? specLabel(r)
+        : specLabel(inc.reproduce) +
+          " on 00, " +
+          specLabel(r) +
+          " on " +
+          r.checkpoint,
+      why:
+        "The rows of Compare's postmortem table that this fix changes, filled in from the two runs as they finish. " +
+        (same
+          ? "Same ticket, started at the same moment: the difference is the code between the two checkpoints."
+          : ""),
+    });
+    if (r.inject_truncate)
+      add(
+        evid.body,
+        el(
+          "p",
+          "muted small",
+          "01 runs with fault injection on: its first answer is cut off on purpose, so the repair runs.",
+        ),
+      );
+    var tableBox = el("div", "tbl-wrap");
+    evid.body.appendChild(tableBox);
+    add(out, evid.root);
+    var traces = {};
+    function renderTable() {
+      tableBox.textContent = "";
+      tableBox.appendChild(
+        cmpTable(rows.length ? rows : CMP_ROWS, sides, traces),
+      );
+    }
+    renderTable();
+
+    var colsBox = el("div", "cmp-cols");
+    colsBox.style.gridTemplateColumns = "repeat(2, minmax(0, 1fr))";
+    add(out, colsBox);
+    out.scrollIntoView({ behavior: "smooth", block: "start" });
+
+    // 00 and 01 get the plain-words verdict above their raw output; a service
+    // column already shows its verdict, so it gets the plan's own reasoning
+    // (model text: textContent only).
+    var jobs = sides.map(function (side) {
+      var c = liveColumn(colsBox, side.name, side.cp),
+        body = c.col.body;
+      return L.runStream(specBody(side.spec, side.cp, approval), c.onEvent)
+        .then(function (t) {
+          traces[side.key] = t;
+          c.done(t);
+          if (side.cp < "02") {
+            var v = L.simpleVerdict(t);
+            body.insertBefore(
+              el("p", "inc-verdict tone-" + v[1], v[0]),
+              body.firstChild,
+            );
+          } else {
+            var why = ((t.state || {}).resolution_plan || {}).rationale;
+            if (why)
+              add(
+                body,
+                el(
+                  "div",
+                  "muted small inc-rationale",
+                  "The AI's reasoning (plan.rationale, never sent to the customer)",
+                ),
+                el("blockquote", "gate-quote", why),
+              );
+          }
+          renderTable();
+        })
+        .catch(function (err) {
+          traces[side.key] = { failed: true };
+          c.fail(err);
+          renderTable();
+        });
+    });
+    Promise.all(jobs).then(function () {
+      S.busy.incident = false;
+      setBothButtons(false);
+    });
   }
 
   function loadBoard() {
@@ -1583,7 +1858,8 @@
             go(inc.reproduce, "00");
           };
           var r = inc.retired,
-            b2;
+            b2,
+            b3 = null;
           if (r.available === false) {
             // This copy of the repo doesn't have the fixing checkpoint yet.
             b2 = el(
@@ -1597,7 +1873,7 @@
             // partial: the checkpoint narrows the incident but the decks keep it open.
             b2 = el(
               "button",
-              "btn btn-sm btn-primary",
+              "btn btn-sm",
               (r.partial ? "See it narrowed on " : "See it retired on ") +
                 r.checkpoint +
                 " · " +
@@ -1608,8 +1884,20 @@
             b2.onclick = function () {
               go(r, r.checkpoint);
             };
+            b3 = el(
+              "button",
+              "btn btn-sm btn-primary inc-both",
+              "Run 00 and " + r.checkpoint + " side by side",
+            );
+            b3.type = "button";
+            b3.title =
+              "Two real runs at once, with how " + r.checkpoint + " fixed it";
+            b3.disabled = !!S.busy.incident;
+            b3.onclick = function () {
+              runBoth(inc);
+            };
           }
-          add(actions, b1, b2);
+          add(actions, b3, b1, b2);
           card.appendChild(actions);
           box.appendChild(card);
         });

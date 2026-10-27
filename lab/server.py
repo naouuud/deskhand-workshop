@@ -34,6 +34,17 @@ HTTP contract (the UI in lab/static/ is one client of it):
 - POST /api/search                      checkpoint 03's own retrieve() on a bare query
 - GET  /api/logs                        01–04's logs/runs.jsonl as one stream (the Logs tab):
                                         ?tail=N, ?after=<cursor> or ?request_id=<id>
+- GET  /api/orders                      every order the mock API serves, its refunds, and the
+                                        tickets citing each order (the Orders tab), read only
+- GET  /api/state/{checkpoint}          a service's runs.db rows and SQLite files, and the runs
+                                        its store.find_resumable() would restart (the Saved
+                                        state tab), read only
+- GET  /api/state/{checkpoint}/runs/{request_id}
+                                        one row's saved state, its stored events, and its
+                                        LangGraph steps when runs.langgraph.db has them
+- GET  /api/clean-slate                 what a clean slate would delete (the confirm dialog)
+- POST /api/clean-slate                 delete the logs, the services' saved rows, the lab's
+                                        run memory and/or the mock's refunds (a restart)
 """
 
 from __future__ import annotations
@@ -47,14 +58,18 @@ import json
 import os
 import re
 import signal
+import sqlite3
 import subprocess
 import sys
 import threading
 import time
 import uuid
 from collections import OrderedDict, deque
+from contextlib import closing
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator, Iterator
+from urllib.parse import quote
 
 import httpx
 from dotenv import dotenv_values
@@ -325,6 +340,14 @@ for _cp in ("02", "03", "04"):
     if _cp in CHECKPOINTS:
         ANCHORS[_cp] = _service_anchors(_cp)
 
+# The Orders view's code links: the mock order API every checkpoint shares.
+ANCHORS["mock"] = [
+    ("get_order", "shared/mock_order_api/app.py", "def get_order("),
+    ("issue_refund", "shared/mock_order_api/app.py", "def issue_refund("),
+    ("list_refunds", "shared/mock_order_api/app.py", "def list_refunds("),
+    ("load_orders", "shared/mock_order_api/app.py", "def _load_orders("),
+]
+
 # The ten v1 incidents from the Session 1 scoreboard, each mapped to a ticket
 # that tends to reproduce it on checkpoint 00 and to the checkpoint that
 # retires it. Ticket ids are from shared/data/tickets.json; letters are the
@@ -415,6 +438,99 @@ INCIDENT_BOARD: list[dict[str, Any]] = [
         "watch": "00 leaves no request ID, no log line, no error code. 01 writes one JSON line per event under a request_id; 02 persists state and events in SQLite too (partial on the scoreboard from Session 4); 04's dashboard groups failures by code, which retires it.",
     },
 ]
+
+# How each incident was fixed, for the board's side-by-side run (00 and the
+# fixing checkpoint at once). "broke" is why 00 fails, "steps" what the fixing
+# checkpoint changed, each with the line it lives on as (file, needle), found
+# by cite() like the anchors above. "evidence" names the rows of the Compare
+# table (CMP_ROWS in views.js) that show the difference on the two runs.
+# "still_open" is for the incidents the decks only mark narrowed.
+_BOT = "checkpoints/00-broken-bot/bot.py"
+INCIDENT_FIXES: dict[int, dict[str, Any]] = {
+    1: {"broke": "00 asks for JSON in plain words and runs json.loads on whatever comes back. Answers are capped at 256 tokens and nobody checks finish_reason, so a long answer is cut off mid-object and json.loads fails. The bare except throws the error away and sends the same request again.",
+        "broke_cites": [(_BOT, "max_tokens=256"), (_BOT, "json.loads(raw)"), (_BOT, "except Exception:")],
+        "steps": [
+            ("The provider is handed the plan's schema, so the answer comes back as a typed ResolutionPlan, not text to parse.", "checkpoints/02-service/llm.py", ").with_structured_output("),
+            ("validate_plan checks that plan against the business rules. A plan that breaks one goes back to the model with the list of problems, up to two repairs.", "checkpoints/02-service/nodes.py", "def validate_plan("),
+            ("When the repairs run out, the run stops with REPAIR_EXHAUSTED and a safe message. Nothing half-parsed goes anywhere.", "checkpoints/02-service/nodes.py", "errors.REPAIR_EXHAUSTED,"),
+        ],
+        "evidence": ["Outcome", "Validated", "LLM calls", "What the customer got"]},
+    2: {"broke": "There is no order data in 00's prompt, so the model cannot know where an order is. It writes “let me check the shipping status for you”, and that sentence goes to the customer as the answer.",
+        "broke_cites": [(_BOT, 'prompt = f"""')],
+        "steps": [
+            ("The model may only return a TriageResult: a category, a priority and a sentiment from fixed lists, plus a confidence. There is no free-text field to apologise in.", "checkpoints/01-triage/models.py", "class TriageResult"),
+            ("When the call fails, the customer gets a sentence from errors.py chosen by the error code, never model text and never an exception.", "checkpoints/01-triage/errors.py", "def user_message"),
+        ],
+        "evidence": ["Outcome", "What the customer got", "Category", "Validated"]},
+    3: {"broke": "00 prints every token to the customer as it arrives: half-built JSON, and again for every retry.",
+        "broke_cites": [(_BOT, 'print(delta, end=""')],
+        "steps": [
+            ("Only reply.delta streams: the customer's reply, a few words at a time.", "checkpoints/02-service/events.py", "REPLY_DELTA = "),
+            ("The plan is machine output. It arrives whole in run.completed, or the run ends with run.failed. Nothing partial reaches the screen.", "checkpoints/02-service/nodes.py", "emit(events.REPLY_DELTA"),
+            ("The reply is written from the validated plan, after the rules have passed.", "checkpoints/02-service/nodes.py", "def draft_customer_reply("),
+        ],
+        "evidence": ["Outcome", "What the customer got", "Validated"]},
+    4: {"broke": "Every failure gets the same treatment: send the identical request again, at once. A request that failed for a fixed reason, like too few tokens, fails the same way three times, and then 00 gives up.",
+        "broke_cites": [(_BOT, "while True"), (_BOT, "attempts >= 3")],
+        "steps": [
+            ("Provider errors get a name where llm.py calls the provider: an answer cut off at max_tokens becomes LLM_MALFORMED_OUTPUT instead of a json.loads crash.", "checkpoints/01-triage/llm.py", "except openai.LengthFinishReasonError"),
+            ("Only malformed output is retried, once, and the retry tells the model what was wrong with its first answer.", "checkpoints/01-triage/triage.py", "Your previous response was not a valid TriageResult"),
+            ("Any other error stops at once with its own code instead of looping.", "checkpoints/01-triage/triage.py", "if exc.internal_error_code != errors.LLM_MALFORMED_OUTPUT"),
+        ],
+        "evidence": ["Outcome", "Validated", "LLM calls", "Cost"],
+        "still_open": "A busy provider (a rate limit) is passed up unchanged, and 02's retries only cover the order API, so every scoreboard keeps this one partial."},
+    5: {"broke": "00 never calls the order API. All it knows about the order is what the customer wrote.",
+        "broke_cites": [(_BOT, 'prompt = f"""')],
+        "steps": [
+            ("fetch_order_data looks the order up in code before the plan is written.", "checkpoints/02-service/nodes.py", "def fetch_order_data("),
+            ("Every order-API call has a 5 s timeout and two retries with backoff on timeouts, connection errors and 5xx answers.", "checkpoints/02-service/nodes.py", "def _order_api_call("),
+            ("When every try fails, the last failure decides the code (TOOL_ORDER_API_TIMEOUT, TOOL_ORDER_API_ERROR, TOOL_ORDER_NOT_FOUND) and the run fails safely.", "checkpoints/02-service/errors.py", "TOOL_ORDER_API_TIMEOUT = "),
+        ],
+        "evidence": ["Outcome", "Checked against the order", "Refund suggested", "Validated"]},
+    6: {"broke": "00 has no order data, so the only refund figure it sees is the $249.99 the customer typed for a $24.99 band, and the prompt ends with “Be generous”. The refund then fires on a truthiness check: no cap, no approval.",
+        "broke_cites": [(_BOT, "Be generous"), (_BOT, 'plan.get("refund_amount")')],
+        "steps": [
+            ("The order is looked up in code, so the plan sees the real order total.", "checkpoints/03-rag/nodes.py", "def fetch_order_data("),
+            ("Rule 1 refuses a refund above the order total, and an ask above the total must go to a person instead of being quietly shrunk.", "checkpoints/03-rag/rules.py", "# Rule 1"),
+            ("A refund over $50, or a different amount than was asked for, waits at the approval gate.", "checkpoints/03-rag/rules.py", "AUTO_APPROVE_LIMIT_USD = "),
+            ("The refund-policy sections are retrieved for the ticket, and rule 5 makes any refund cite one of them.", "checkpoints/03-rag/rules.py", "# Rule 5"),
+        ],
+        "evidence": ["Refund suggested", "Checked against the order", "Human approval", "Refund executed", "Grounded in policy"]},
+    7: {"broke": "00 pastes all six policy documents, about 3,000 tokens, into every call, and sends the whole prompt again on every retry.",
+        "broke_cites": [(_BOT, "def load_all_policies")],
+        "steps": [
+            ("Retrieval sends only the six most relevant policy sections instead of every document.", "checkpoints/04-production/retrieve.py", "TOP_K = "),
+            ("Every call is charged against a per-run budget ($0.25 by default). A run that crosses it stops with BUDGET_EXCEEDED.", "checkpoints/04-production/budget.py", "BUDGET_USD_PER_RUN = "),
+            ("Triage runs on the cheap model; only the plan, which decides money, gets the strong one.", "checkpoints/04-production/budget.py", "MODEL_TRIAGE = "),
+        ],
+        "evidence": ["Cost", "LLM calls", "Grounded in policy", "Wall time"]},
+    8: {"broke": "00 samples at temperature 1.0 with no schema and no rules, so each run can pick a different category and refund, and every one of them counts as valid.",
+        "broke_cites": [(_BOT, "temperature=1.0")],
+        "steps": [
+            ("Temperature 0: the model takes its most likely answer instead of sampling.", "checkpoints/02-service/llm.py", "temperature: float = 0.0,  # low randomness"),
+            ("The schema limits the answer to the allowed values, and the rules send back any plan that breaks them.", "checkpoints/02-service/rules.py", "# Rule 1"),
+            ("04 measures what is left as determinism_agreement on a golden set and gates releases on it.", "checkpoints/04-production/evals/run_evals.py", "determinism_agreement"),
+        ],
+        "evidence": ["Category", "Actions", "Refund suggested", "Validated"],
+        "still_open": "Temperature 0 narrows the spread; it does not remove it. One run of each cannot show a spread: Repeat runs a checkpoint N times."},
+    9: {"broke": "00 prints “refund issued!” and keeps no record: no saved state, no request id, no idempotency key. A crash leaves nothing to resume, and a retry pays again.",
+        "broke_cites": [(_BOT, "refund issued")],
+        "steps": [
+            ("State is saved to SQLite after every node, so a restarted service resumes the run where it stopped.", "checkpoints/02-service/graph.py", "store.save_state("),
+            ("Every refund carries Idempotency-Key = request_id:index, the same key on every retry.", "checkpoints/02-service/nodes.py", 'idempotency_key = f"{state.request_id}:{index}"'),
+            ("The order API pays once per key: a retry with a key it has seen gets the original refund back.", "shared/mock_order_api/app.py", "def issue_refund("),
+        ],
+        "evidence": ["Refund executed", "Human approval", "Greppable request_id"]},
+    10: {"broke": "00 catches every exception and throws it away: no request id, no log line, no error code. After a failed run there is nothing to look at.",
+         "broke_cites": [(_BOT, "except Exception:")],
+         "steps": [
+             ("Every run gets a request_id, and every event is one JSON line in logs/runs.jsonl.", "checkpoints/04-production/obslog.py", "def log_event"),
+             ("A failure carries an error code from one list, and the customer gets the safe sentence for that code.", "checkpoints/04-production/errors.py", "USER_MESSAGES: dict"),
+             ("State and events are kept in SQLite, so any run can be replayed by its request_id.", "checkpoints/04-production/store.py", "def append_event("),
+             ("dashboard.py counts the failures by code across every run.", "checkpoints/04-production/dashboard.py", "error_codes[code] += 1"),
+         ],
+         "evidence": ["Outcome", "Validated", "Greppable request_id"]},
+}
 
 app = FastAPI(title="Deskhand Lab")
 
@@ -1060,7 +1176,8 @@ def _spawn(
 ) -> Iterator[dict]:
     """Run one runner subprocess (warm from the pool when one is ready); yield
     its NDJSON events (redacted).
-    runner: a runner other than the checkpoint's own (03's search-only mode)."""
+    runner: a runner other than the checkpoint's own (03's search-only mode,
+    the Saved state page's cpstate.py)."""
     key, taken = _take_runner(checkpoint, runner)
     proc, stderr_tail = taken.proc, taken.stderr_tail
 
@@ -1093,6 +1210,7 @@ def _spawn(
                     "text": line + "\n",
                 }  # not protocol: show it, don't drop it
             # Every runner mode ends with one of these: its result, or an error.
+<<<<<<< HEAD
             if event.get("type") in {
                 "trace",
                 "incidents",
@@ -1102,6 +1220,9 @@ def _spawn(
                 "map",
                 "error",
             }:
+=======
+            if event.get("type") in {"trace", "incidents", "quote", "search", "distance", "map", "resumable", "error"}:
+>>>>>>> main
                 saw_terminal = True
             yield event
         proc.wait(timeout=10)
@@ -3652,6 +3773,456 @@ def api_logs(
     return body
 
 
+# ----------------------------------------------------------- the Orders page
+# GET /api/orders: what the order system holds, so a run can be checked
+# against it. The mock has no list endpoint (a service only ever looks one
+# order up), so the seed names the orders and the running mock answers for
+# each one: the record a service gets, notes included. X-Chaos: none reads
+# it as stored even while a chaos mode is on, because chaos is what the
+# services get, not what the store holds. GET /refunds is the till, which
+# chaos never touches. Read only: the lab never POSTs a refund.
+
+
+def _seed_orders() -> list[dict]:
+    """The seed as the mock loads it: delivered_days_ago becomes delivered_at,
+    counted from now (the running mock counts from its own start)."""
+    now = datetime.now(timezone.utc)
+    out = []
+    for order in json.loads(ORDERS_SEED.read_text(encoding="utf-8"))["orders"]:
+        order = dict(order)
+        days = order.pop("delivered_days_ago", None)
+        order["delivered_at"] = (now - timedelta(days=days)).isoformat() if days is not None else None
+        out.append(order)
+    return out
+
+
+def _orders_client() -> httpx.AsyncClient:
+    """The client the Orders page reads the mock with (a test swaps in the
+    mock app itself, so no server has to run)."""
+    return httpx.AsyncClient(timeout=LOCAL_TIMEOUT, headers={"X-Chaos": "none"})
+
+
+@app.get("/api/orders")
+async def api_orders() -> dict:
+    """Every seeded order as the mock serves it, the till, and which dataset
+    tickets cite which order. With the mock down: the seed, and no till."""
+    base, seed = _mock_base(), _seed_orders()
+
+    async def get(client: httpx.AsyncClient, path: str) -> tuple[int | None, Any]:
+        try:
+            r = await client.get(_loopback(base + path))
+            return r.status_code, r.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            return None, str(exc) or type(exc).__name__
+
+    async with _orders_client() as client:
+        replies = await asyncio.gather(get(client, "/refunds"),
+                                       *[get(client, f"/orders/{o['order_id']}") for o in seed])
+    (till_status, till), order_replies = replies[0], replies[1:]
+    up = till_status is not None
+    orders = []
+    for stored, (status, body) in zip(seed, order_replies):
+        if status == 200 and isinstance(body, dict):
+            orders.append({"order": body, "from": "mock", "status": 200, "error": None})
+        else:
+            error = body if status is None else f"GET /orders/{stored['order_id']} answered {status}"
+            orders.append({"order": stored, "from": "seed", "status": status, "error": error if up else None})
+
+    cited: dict[str, list[str]] = {}
+    for t in _tickets():
+        if t.get("order_id"):
+            cited.setdefault(t["order_id"], []).append(t["ticket_id"])
+    return {
+        "mock": {"url": base, "up": up, "error": None if up else till},
+        "read_at": datetime.now(timezone.utc).isoformat(),
+        "orders": orders,
+        "refunds": till if till_status == 200 else None,
+        "tickets": cited,
+    }
+
+
+# ------------------------------------------------------ the Saved state page
+# GET /api/state/{checkpoint}: what a service saved, as its SQLite files hold
+# it. runs.db is store.py's: one row per run, overwritten after every node
+# (the latest state, no history), and the events behind the SSE stream.
+# runs.langgraph.db is LangGraph's SqliteSaver (graph_lg.py): one checkpoint
+# per step, all kept. Every connection is opened with mode=ro, so the lab
+# cannot write and cannot create a file the service has not. The services
+# keep their files in WAL mode, so a read never blocks a run that is saving.
+#
+# Which runs a restart would pick up is the checkpoint's own answer:
+# store.find_resumable(), asked through lab/runners/cpstate.py, never a copy
+# of its rule. The answer is kept until runs.db changes.
+
+STATE_RUNS_MAX = 200     # newest rows the table gets
+STATE_EVENTS_MAX = 3000  # most stored events one run's details carry
+# Every SQLite file a service checkpoint may hold: the file that names it, and
+# the line there (a needle, for the code link).
+STATE_FILES = (
+    ("runs.db", "store.py", "DB_PATH ="),
+    ("runs.langgraph.db", "graph_lg.py", '".langgraph.db"'),
+    ("runs.agent.db", "agent_bounded.py", '".agent.db"'),
+)
+# The row fields the table shows, read from state_json (missing ones are null).
+_STATE_SUMMARY = ("ticket_id", "customer_name", "approval_status", "internal_error_code", "cost_usd")
+
+
+def _state_sources() -> list[str]:
+    """The checkpoints that save state: the services."""
+    return [cp for cp, c in CHECKPOINTS.items() if c["kind"] == "http"]
+
+
+def _state_path(checkpoint: str, name: str) -> Path:
+    """One of a checkpoint's SQLite files. Resolved at request time, so the
+    tests can point it at tmp_path."""
+    return REPO / CHECKPOINTS[checkpoint]["dir"] / name
+
+
+def _read_only(path: Path) -> sqlite3.Connection:
+    """A connection that cannot write, and fails rather than create a missing file."""
+    return sqlite3.connect(f"file:{quote(path.as_posix(), safe='/:')}?mode=ro", uri=True, timeout=2.0)
+
+
+def _db_signature(path: Path) -> tuple:
+    """Changes whenever the file or its write-ahead log does."""
+    out = []
+    for p in (path, path.with_name(path.name + "-wal")):
+        try:
+            st = p.stat()
+            out.append((st.st_mtime_ns, st.st_size))
+        except OSError:
+            out.append(None)
+    return tuple(out)
+
+
+def _state_checkpoint(checkpoint: str) -> None:
+    if checkpoint not in CHECKPOINTS:
+        raise HTTPException(404, f"no checkpoint {checkpoint} in this copy of the repo")
+    if CHECKPOINTS[checkpoint]["kind"] != "http":
+        raise HTTPException(422, "only the services save state: checkpoint 02, 03 or 04")
+
+
+def _state_file(checkpoint: str, name: str, written_by: str, needle: str) -> dict:
+    """One SQLite file: whether it exists, its size (with the WAL), its tables."""
+    path = _state_path(checkpoint, name)
+    info = {"name": name, "path": f"{CHECKPOINTS[checkpoint]['dir']}/{name}", "written_by": written_by,
+            "cite": cite(f"{CHECKPOINTS[checkpoint]['dir']}/{written_by}", needle),
+            "exists": path.exists(), "size_bytes": 0, "tables": [], "error": None}
+    if not info["exists"]:
+        return info
+    info["size_bytes"] = _log_size(path) + _log_size(path.with_name(name + "-wal"))
+    try:
+        with closing(_read_only(path)) as conn:
+            names = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")]
+            info["tables"] = [{"name": t, "rows": conn.execute(f'SELECT COUNT(*) FROM "{t.replace(chr(34), chr(34) * 2)}"').fetchone()[0]}
+                              for t in names]
+    except sqlite3.Error as exc:
+        info["error"] = str(exc)
+    return info
+
+
+def _json_or_raw(text: str | None) -> Any:
+    try:
+        return json.loads(text) if text is not None else None
+    except json.JSONDecodeError:
+        return {"raw": text}
+
+
+def _langgraph_counts(checkpoint: str) -> dict[str, int]:
+    """Checkpoints per thread in runs.langgraph.db (thread_id = request_id)."""
+    path = _state_path(checkpoint, "runs.langgraph.db")
+    if not path.exists():
+        return {}
+    try:
+        with closing(_read_only(path)) as conn:
+            return dict(conn.execute("SELECT thread_id, COUNT(*) FROM checkpoints WHERE checkpoint_ns = '' GROUP BY thread_id"))
+    except sqlite3.Error:
+        return {}
+
+
+def _langgraph_steps(checkpoint: str, request_id: str) -> dict | None:
+    """One run's LangGraph checkpoints, oldest first, or None without the file.
+    The values are msgpack and stay unread; the step, its source and the
+    channels each step wrote are plain text. A node routes on by writing
+    "branch:to:<next node>", so the path reads straight off the writes;
+    __interrupt__ is the approval gate pausing, __resume__ the answer."""
+    path = _state_path(checkpoint, "runs.langgraph.db")
+    if not path.exists():
+        return None
+    with closing(_read_only(path)) as conn:
+        # checkpoint ids are time-ordered UUIDs, so they sort oldest first.
+        rows = conn.execute("SELECT checkpoint_id, metadata FROM checkpoints WHERE thread_id = ? AND checkpoint_ns = ''"
+                            " ORDER BY checkpoint_id", (request_id,)).fetchall()
+        writes: dict[str, list[str]] = {}
+        for cid, channel in conn.execute("SELECT checkpoint_id, channel FROM writes WHERE thread_id = ? AND checkpoint_ns = ''"
+                                         " ORDER BY checkpoint_id, task_id, idx", (request_id,)):
+            writes.setdefault(cid, []).append(channel)
+    steps, ran = [], "(input)"
+    for cid, meta in rows:
+        meta = _json_or_raw(meta.decode("utf-8", errors="replace") if isinstance(meta, bytes) else meta) or {}
+        chans = writes.get(cid, [])
+        nxt = [c.split(":", 2)[2] for c in chans if c.startswith("branch:to:")]
+        special = sorted({c for c in chans if c.startswith("__")})
+        steps.append({"checkpoint_id": cid, "step": meta.get("step"), "source": meta.get("source"),
+                      "ran": ran if meta.get("source") != "input" else None, "next": nxt, "special": special})
+        if nxt:
+            ran = ", ".join(nxt)
+    return {"path": f"{CHECKPOINTS[checkpoint]['dir']}/runs.langgraph.db", "steps": steps}
+
+
+_resumable_cache: dict[str, tuple[tuple, dict]] = {}  # checkpoint -> (runs.db signature, answer)
+_resumable_lock = threading.Lock()
+
+
+def _resumable(checkpoint: str) -> dict:
+    """{ok, runs: [{request_id, status, next_node}]} from the checkpoint's own
+    store.find_resumable(), or {ok: False, error}. Asked again only when
+    runs.db or its WAL changed. Never asked without runs.db: store's
+    connection would create it."""
+    path = _state_path(checkpoint, "runs.db")
+    if not path.exists():
+        return {"ok": True, "runs": []}
+    with _resumable_lock:  # one runner at a time; a second poll waits and reads the cache
+        sig = _db_signature(path)
+        cached = _resumable_cache.get(checkpoint)
+        if cached is not None and cached[0] == sig:
+            return cached[1]
+        events = list(_spawn(checkpoint, {"mode": "resumable", "db_path": str(path)}, runner="cpstate.py"))
+        found = next((e for e in events if e.get("type") == "resumable"), None)
+        if found is None:
+            return {"ok": False, "error": _first_error(events)}
+        answer = {"ok": True, "runs": found.get("runs") or []}
+        _resumable_cache[checkpoint] = (sig, answer)
+        return answer
+
+
+def _state_rows(checkpoint: str) -> dict:
+    """The runs table, newest first, with each row's event count and its
+    LangGraph step count, and a count per status over every row."""
+    path = _state_path(checkpoint, "runs.db")
+    secrets = _secrets()
+    with closing(_read_only(path)) as conn:
+        total = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+        counts = dict(conn.execute("SELECT status, COUNT(*) FROM runs GROUP BY status"))
+        rows = conn.execute("SELECT request_id, status, next_node, state_json, updated_at FROM runs"
+                            " ORDER BY updated_at DESC LIMIT ?", (STATE_RUNS_MAX,)).fetchall()
+        try:
+            events = dict(conn.execute("SELECT request_id, COUNT(*) FROM events GROUP BY request_id"))
+        except sqlite3.Error:
+            events = {}
+    steps = _langgraph_counts(checkpoint)
+    out = []
+    for request_id, status, next_node, state_json, updated_at in rows:
+        for secret in secrets:  # redact()'s rule, with .env read once per request
+            state_json = state_json.replace(secret, "[redacted]")
+        state = _json_or_raw(state_json)
+        state = state if isinstance(state, dict) else {}
+        out.append({"request_id": request_id, "status": status, "next_node": next_node, "updated_at": updated_at,
+                    **{k: state.get(k) for k in _STATE_SUMMARY},
+                    "events": events.get(request_id, 0), "steps": steps.get(request_id)})
+    return {"total": total, "counts": counts, "rows": out}
+
+
+@app.get("/api/state/{checkpoint}")
+def api_state(checkpoint: str) -> dict:
+    """A service's saved state: its SQLite files, the runs table, and the runs
+    its own store.find_resumable() would restart. Starts nothing, writes nothing."""
+    _state_checkpoint(checkpoint)
+    files = [_state_file(checkpoint, name, by, needle) for name, by, needle in STATE_FILES]
+    body: dict[str, Any] = {
+        "checkpoint": checkpoint, "dir": CHECKPOINTS[checkpoint]["dir"],
+        "read_at": datetime.now(timezone.utc).isoformat(),
+        "sources": _state_sources(), "files": [f for f in files if f["exists"] or f["name"] == "runs.db"],
+        "total": 0, "counts": {}, "rows": [], "error": None, "resumable": {"ok": True, "runs": []},
+        "cites": {"save_state": cite(f"{CHECKPOINTS[checkpoint]['dir']}/store.py", "def save_state"),
+                  "find_resumable": cite(f"{CHECKPOINTS[checkpoint]['dir']}/store.py", "def find_resumable"),
+                  "schema": cite(f"{CHECKPOINTS[checkpoint]['dir']}/store.py", "CREATE TABLE IF NOT EXISTS runs")},
+    }
+    if not _state_path(checkpoint, "runs.db").exists():
+        return body
+    try:
+        body.update(_state_rows(checkpoint))
+    except sqlite3.Error as exc:
+        body["error"] = f"could not read runs.db: {exc}"
+        return body
+    body["resumable"] = _resumable(checkpoint)
+    return body
+
+
+@app.get("/api/state/{checkpoint}/runs/{request_id}")
+def api_state_run(checkpoint: str, request_id: str) -> dict:
+    """One row: the saved state, the node a restart would continue from, the
+    events stored for the stream, and the LangGraph steps if there are any."""
+    _state_checkpoint(checkpoint)
+    if not REQUEST_ID_RE.match(request_id):
+        raise HTTPException(422, "a request_id is 4 to 64 letters, digits, - or _")
+    path = _state_path(checkpoint, "runs.db")
+    if not path.exists():
+        raise HTTPException(404, f"checkpoint {checkpoint} has no runs.db yet: the service creates it when it starts")
+    with closing(_read_only(path)) as conn:
+        row = conn.execute("SELECT status, next_node, state_json, updated_at FROM runs WHERE request_id = ?",
+                           (request_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, f"checkpoint {checkpoint}'s runs.db has no run {request_id}")
+        events_total = conn.execute("SELECT COUNT(*) FROM events WHERE request_id = ?", (request_id,)).fetchone()[0]
+        events = conn.execute("SELECT seq, event, data_json, ts FROM events WHERE request_id = ? ORDER BY seq LIMIT ?",
+                              (request_id, STATE_EVENTS_MAX)).fetchall()
+    status, next_node, state_json, updated_at = row
+    secrets = _secrets()
+
+    def clean(text: str) -> Any:  # redact()'s rule, with .env read once per request
+        for secret in secrets:
+            text = text.replace(secret, "[redacted]")
+        return _json_or_raw(text)
+
+    try:
+        langgraph = _langgraph_steps(checkpoint, request_id)
+    except sqlite3.Error as exc:
+        langgraph = {"path": f"{CHECKPOINTS[checkpoint]['dir']}/runs.langgraph.db", "steps": [], "error": str(exc)}
+    return {
+        "checkpoint": checkpoint, "request_id": request_id, "status": status, "next_node": next_node,
+        "updated_at": updated_at, "state": clean(state_json),
+        "events": [{"seq": seq, "event": event, "ts": ts, "data": clean(data)} for seq, event, data, ts in events],
+        "events_total": events_total, "langgraph": langgraph,
+    }
+
+
+# --------------------------------------------------------------- clean slate
+# GET /api/clean-slate: what a clean slate would delete, for the confirm
+# dialog. POST deletes the parts asked for, so a demo starts from nothing:
+# - logs: every checkpoint's logs/runs.jsonl. obslog opens the file for each
+#   line it appends, so the next run creates it again.
+# - state: every row in the services' SQLite files. The files and their
+#   tables stay, so a running service keeps saving without a restart
+#   (deleting runs.db under it would leave a file with no tables).
+# - runs: what the lab server holds in memory: traces, observed costs, and
+#   the request_ids Follow lists.
+# - till: the mock keeps its refunds in memory, so only a restart empties
+#   them. Only a mock the lab started is restarted, with the flags it had.
+# Refused while a 02–04 run is open: its next save would bring its row back.
+# The only place the lab writes to a checkpoint's files, and only on a click.
+
+
+class CleanSlateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    logs: bool = False
+    state: bool = False
+    runs: bool = False
+    till: bool = False
+
+
+def _line_count(path: Path) -> int:
+    n = 0
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            n += chunk.count(b"\n")
+    return n
+
+
+def _mock_managed() -> bool:
+    info = MANAGED.get("mock")
+    return bool(info and info.get("proc") and info["proc"].poll() is None)
+
+
+def _till_info() -> dict:
+    till = _probe_sync(_mock_base() + "/refunds")
+    up = till is not None or _probe_sync(_mock_base() + "/openapi.json") is not None
+    return {"url": _mock_base(), "up": up, "managed": _mock_managed(),
+            "refunds": till.get("count") if till else None}
+
+
+def _clear_log(cp: str) -> dict:
+    path, rel = _log_path(cp), f"{CHECKPOINTS[cp]['dir']}/logs/runs.jsonl"
+    if not path.exists():
+        return {"what": rel, "ok": True, "note": "no file"}
+    try:
+        path.unlink()
+    except OSError as exc:
+        return {"what": rel, "ok": False, "note": str(exc)}
+    return {"what": rel, "ok": True, "note": "deleted"}
+
+
+def _clear_db(cp: str, name: str) -> dict:
+    """Delete every row of every table; the file and its schema stay."""
+    path, rel = _state_path(cp, name), f"{CHECKPOINTS[cp]['dir']}/{name}"
+    try:
+        # mode=rw: write, but never create a file the service has not.
+        with closing(sqlite3.connect(f"file:{quote(path.as_posix(), safe='/:')}?mode=rw", uri=True, timeout=10.0)) as conn:
+            tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")]
+            rows = 0
+            with conn:  # one transaction: all of the file's rows go, or none
+                for t in tables:
+                    rows += conn.execute(f'DELETE FROM "{t.replace(chr(34), chr(34) * 2)}"').rowcount
+            try:  # give the space back; a service mid-read can make this wait out, which is harmless
+                conn.execute("VACUUM")
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            except sqlite3.Error:
+                pass
+    except sqlite3.Error as exc:
+        return {"what": rel, "ok": False, "note": str(exc)}
+    return {"what": rel, "ok": True, "note": f"deleted {rows} row{'s' * (rows != 1)} from {len(tables)} table{'s' * (len(tables) != 1)}"}
+
+
+def _empty_till() -> dict:
+    what = "mock order API refunds"
+    if not _mock_managed():
+        if _till_info()["up"]:
+            return {"what": what, "ok": False, "note": "the mock was started outside the lab: restart it in its terminal to empty the till"}
+        return {"what": what, "ok": True, "note": "not running: it starts with an empty till"}
+    flags = dict(MANAGED["mock"].get("flag_env") or {})
+    try:
+        stop_service("mock")
+        start_service("mock", flags=flags)
+    except HTTPException as exc:
+        return {"what": what, "ok": False, "note": f"restart failed: {exc.detail}"}
+    return {"what": what, "ok": True, "note": "restarted the mock" + (" with the same flags" if flags else "")}
+
+
+@app.get("/api/clean-slate")
+def api_clean_slate_preview() -> dict:
+    """Everything a clean slate would delete, with sizes. Deletes nothing."""
+    logs = []
+    for cp in _log_sources():
+        path = _log_path(cp)
+        logs.append({"checkpoint": cp, "path": f"{CHECKPOINTS[cp]['dir']}/logs/runs.jsonl", "exists": path.exists(),
+                     "size_bytes": _log_size(path), "lines": _line_count(path) if path.exists() else 0})
+    state = []
+    for cp in _state_sources():
+        for name, by, needle in STATE_FILES:
+            f = _state_file(cp, name, by, needle)
+            if f["exists"]:
+                state.append({"checkpoint": cp, "path": f["path"], "size_bytes": f["size_bytes"], "error": f["error"],
+                              "rows": sum(t["rows"] for t in f["tables"])})
+    return {"open_runs": len(LIVE), "logs": logs, "state": state,
+            "runs": {"traces": len(RUNS), "recent": len(RECENT)}, "till": _till_info()}
+
+
+@app.post("/api/clean-slate")
+def api_clean_slate(body: CleanSlateRequest) -> dict:
+    """Delete the parts asked for; one result line per file or store."""
+    if LIVE:
+        raise HTTPException(409, f"{len(LIVE)} run{'s are' if len(LIVE) != 1 else ' is'} still open: "
+                                 "let it finish (or answer its approval) first")
+    done: list[dict] = []
+    if body.logs:
+        done += [_clear_log(cp) for cp in _log_sources()]
+    if body.state:
+        done += [_clear_db(cp, name) for cp in _state_sources() for name, _, _ in STATE_FILES
+                 if _state_path(cp, name).exists()]
+        with _resumable_lock:
+            _resumable_cache.clear()
+    if body.runs:
+        n = len(RUNS)
+        RUNS.clear()
+        OBSERVED_COST.clear()
+        RECENT.clear()
+        done.append({"what": "lab server memory", "ok": True,
+                     "note": f"forgot {n} trace{'s' * (n != 1)}, the observed costs and Follow's recent list"})
+    if body.till:
+        done.append(_empty_till())
+    return {"done": done}
+
+
 # ------------------------------------------------------------ read-only lookups
 
 
@@ -3670,10 +4241,23 @@ def get_run(run_id: str) -> dict:
     return trace
 
 
+def _fix_for(n: int) -> dict | None:
+    """INCIDENT_FIXES[n] with every (file, needle) turned into a code link."""
+    fix = INCIDENT_FIXES.get(n)
+    if fix is None:
+        return None
+    return {
+        **fix,
+        "broke_cites": [cite(rel, needle) for rel, needle in fix["broke_cites"]],
+        "steps": [{"text": text, "cite": cite(rel, needle)} for text, rel, needle in fix["steps"]],
+    }
+
+
 @app.get("/api/incidents")
 def incident_board() -> dict:
     """The board, with `available` false on a fix whose checkpoint this copy
     of the repo doesn't have yet (the students' copy grows week by week)."""
+<<<<<<< HEAD
     return {
         "incidents": [
             {
@@ -3686,6 +4270,13 @@ def incident_board() -> dict:
             for inc in INCIDENT_BOARD
         ]
     }
+=======
+    return {"incidents": [
+        {**inc, "retired": {**inc["retired"], "available": inc["retired"]["checkpoint"] in CHECKPOINTS},
+         "fix": _fix_for(inc["n"])}
+        for inc in INCIDENT_BOARD
+    ]}
+>>>>>>> main
 
 
 @app.get("/api/tickets")

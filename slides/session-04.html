@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html data-copy="student" lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Session 04: LLM Application Architecture</title>
+<link rel="stylesheet" href="deck.css">
+<script src="deck.js" defer></script>
+</head>
+<body>
+<main class="deck">
+
+
+<section class="slide lead">
+  <h1>LLM Application Architecture</h1>
+  <p class="subtitle">From a script to a service: one state object, clear statuses, live progress, and surviving a crash</p>
+  <p class="session-meta">Session 4 · Week 2 · Monday, October 26, 2026</p>
+  <aside class="learn">
+    <p>Session 4 of the Deskhand workshop. Until now Deskhand was a script: you ran it, waited, and it printed an answer. Today it becomes a <b>service</b>: a program that keeps running, takes tickets over HTTP and answers at once. Everything is in <code>checkpoints/02-service</code>.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Today</span>Deskhand becomes a service</h2>
+  <div class="callout plain"><p>Support agents don't use terminals. A service takes a ticket, answers at once, does the work in the background, and lets a screen follow along.</p></div>
+  <ol>
+    <li><strong>One record holds the whole run.</strong> Its status only moves along fixed arrows.</li>
+    <li><strong>Save after every step.</strong> A crash resumes instead of starting over.</li>
+    <li><strong>Stream progress, never half an answer.</strong> A viewer who leaves loses nothing.</li>
+  </ol>
+  <p class="small">How today works: no typing in class. You predict before every run, vote when a refund needs a person, and call the moment we pull the plug. Incidents in play: #3 and #10.</p>
+  <aside class="learn">
+    <p>A support agent works in a browser, not a terminal, so Deskhand needs an HTTP API that a screen can call. The three ideas on this slide are the three blocks of the session. <b>One record per run</b>: everything Deskhand knows about a ticket lives in one object, and its status can only move in fixed ways. <b>Save after every step</b>: if the server dies, the run carries on from the last step that finished. <b>Stream progress</b>: the screen sees each step as it happens, but never a half-written plan.</p>
+    <p>The incidents in play are two from Session 1's list: #3, partial failures streamed to the support agent's screen, and #10, nobody can debug why a specific run failed. A longer, file-by-file version of the whole session is in <code>handouts/session-04-walkthrough.md</code>.</p>
+  </aside>
+</section>
+
+<section class="slide demo">
+  <h2><span class="kicker">Live demo</span>What v1 put on the support agent's screen</h2>
+  <div class="callout example" data-label="The customer's ask, order O-33112"><p>"I want a full written plan, not a form response: every single step you are going to take, who does it, how long each one takes, and what happens if it goes wrong."</p></div>
+  <p>v1 caps the length of every answer and retries the same way. Vote before the run: what reaches the support agent's screen?</p>
+  <ol>
+    <li>One clear error message.</li>
+    <li>Nothing, until a good answer arrives.</li>
+    <li>Half a JSON object, once per try.</li>
+  </ol>
+  <p class="small">Then you're the agent: is anything on that screen safe to act on?</p>
+  <aside class="learn">
+    <p>This is v1, the broken bot in <code>checkpoints/00-broken-bot</code>, on a ticket that asks for a very long answer. v1 caps every answer at 256 tokens and streams it to the screen while it is being generated, so the plan is cut off in the middle of the JSON. Its retry sends the same prompt with the same cap, so it is cut at the same place again.</p>
+    <p class="answer">Option 3: half a JSON object, once per try, three times, and then v1 gives up silently. Option 1 is what you would build, but v1 has no error path. Option 2 would need v1 to wait until the answer is complete and checked, and it streams before it knows. Nothing on that screen is safe to act on: <code>"issue_ref</code> could be a refund of any amount. That is incident #3, and the streaming rules on slide 17 retire it.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Anatomy</span>A real LLM service, box by box</h2>
+  <div class="figure">
+  <svg viewBox="0 0 1080 270" width="1040" height="260" role="img" aria-label="Request path of the Deskhand service">
+    <defs>
+      <marker id="ar5a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#01d294"/>
+      </marker>
+      <marker id="ar5m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#9db5b1"/>
+      </marker>
+    </defs>
+    <g font-family="Segoe UI, sans-serif" font-size="18" fill="#eef6f3" text-anchor="middle">
+      <rect x="15" y="95" width="160" height="64" rx="10" fill="#2e2a14" stroke="#ffc53d"/>
+      <text x="95" y="123" fill="#ffc53d">Agent's screen</text>
+      <text x="95" y="146" font-size="14" fill="#9db5b1">the lab, or curl</text>
+      <rect x="220" y="95" width="190" height="64" rx="10" fill="#0d3029" stroke="#01d294"/>
+      <text x="315" y="123" fill="#01d294">FastAPI app</text>
+      <text x="315" y="146" font-size="14" fill="#9db5b1">POST /tickets → 200</text>
+      <rect x="460" y="95" width="180" height="64" rx="10" fill="#0d3029" stroke="#01d294"/>
+      <text x="550" y="123" fill="#01d294">Workflow runner</text>
+      <text x="550" y="146" font-size="14" fill="#9db5b1">11 steps, in a thread</text>
+      <rect x="700" y="15" width="190" height="64" rx="10" fill="#251f3d" stroke="#b99cff"/>
+      <text x="795" y="43" fill="#b99cff">LLM API</text>
+      <text x="795" y="66" font-size="14" fill="#9db5b1">errors become codes</text>
+      <rect x="700" y="180" width="190" height="64" rx="10" fill="#112a45" stroke="#5aa2ff"/>
+      <text x="795" y="208" fill="#5aa2ff">Order API</text>
+      <text x="795" y="231" font-size="14" fill="#9db5b1">5 s timeout, 2 retries</text>
+      <rect x="460" y="195" width="180" height="64" rx="10" fill="#13272b" stroke="#b4f05a"/>
+      <text x="550" y="223" fill="#b4f05a">SQLite runs.db</text>
+      <text x="550" y="246" font-size="14" fill="#9db5b1">state + event log</text>
+      <rect x="930" y="95" width="140" height="64" rx="10" fill="#13272b" stroke="#24413f"/>
+      <text x="1000" y="123">logs/</text>
+      <text x="1000" y="146" font-size="14" fill="#9db5b1">runs.jsonl</text>
+      <line x1="175" y1="115" x2="212" y2="115" stroke="#01d294" stroke-width="2.5" marker-end="url(#ar5a)"/>
+      <line x1="410" y1="127" x2="452" y2="127" stroke="#01d294" stroke-width="2.5" marker-end="url(#ar5a)"/>
+      <line x1="640" y1="105" x2="692" y2="62" stroke="#01d294" stroke-width="2.5" marker-end="url(#ar5a)"/>
+      <line x1="640" y1="150" x2="692" y2="195" stroke="#01d294" stroke-width="2.5" marker-end="url(#ar5a)"/>
+      <line x1="550" y1="159" x2="550" y2="187" stroke="#b4f05a" stroke-width="2.5" marker-end="url(#ar5a)"/>
+      <line x1="640" y1="127" x2="922" y2="127" stroke="#9db5b1" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#ar5m)"/>
+      <path d="M 250 159 C 220 215 160 215 110 167" fill="none" stroke="#9db5b1" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#ar5m)"/>
+      <text x="185" y="232" font-size="15" fill="#9db5b1">events back</text>
+    </g>
+  </svg>
+  </div>
+  <div class="callout analogy"><p>A restaurant order. The waiter gives you a number straight away, the kitchen cooks in the back, and the screen above the counter shows "preparing", then "ready". Nobody stands at the counter holding the line open.</p></div>
+  <aside class="learn">
+    <p>Read the diagram left to right. The agent's screen (the lab, or curl in a terminal) sends <code>POST /tickets</code>. The FastAPI app in <code>app.py</code> answers in milliseconds with a <b>request ID</b>, a short name for this run, and that is all the request does. The real work, eleven steps, runs in a background <b>thread</b> (a second line of execution inside the same program), started by <code>graph.run_in_thread</code>. Two kinds of step call out: to the LLM API, and to the order API on port 9000. After every step the run is saved to SQLite in <code>runs.db</code>, and events flow back to the screen and into <code>logs/runs.jsonl</code>.</p>
+    <p>Why not do the work inside the request? A run takes seconds of model calls. Holding an HTTP request open that long ties up a connection and breaks on any proxy timeout.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Idea 1</span>The state object holds the whole run</h2>
+  <div class="callout plain"><p>A <strong>state object</strong> is one Pydantic object per run. Each step reads it, does one job, writes its result into it, and hands it on. After every step it is saved to SQLite.</p></div>
+  <ul>
+    <li>No globals: if it isn't in the state, the next step can't see it.</li>
+  </ul>
+  <div class="callout analogy"><p>A GitHub Actions run page: each step's status and log are kept, so you see exactly where it stopped. The state object is that page for one ticket.</p></div>
+  <aside class="learn">
+    <p>A <b>state object</b> is one Python object that holds everything about one run. In Deskhand it is <code>TicketResolutionState</code> in <code>models.py</code>, a Pydantic model like the <code>TriageResult</code> you already know. Each step gets the state, does one job, writes its result into it and hands it on. Nothing is kept in global variables, so if a value isn't in the state, the next step can't see it, and neither can you when you debug.</p>
+    <p>The payoff: "what happened to run <code>3f9c1a2b7d4e</code>?" becomes one lookup of the saved state instead of a hunt through logs, the way a CI run page shows you exactly which step stopped.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Idea 1</span>The state: what we know about the ticket</h2>
+  <pre><code>class TicketResolutionState(BaseModel):  # models.py; defaults and 6 fields left out
+    request_id: str                  # "3f9c1a2b7d4e", made by POST /tickets
+    ticket_id: str                   # "T-1001"
+    ticket_text: str                 # Dana's message: cracked headphones
+    customer_name: str | None        # "Dana Whitfield", from tickets.json
+    customer_match: bool | None      # True: order O-48291 is Dana's
+    triage: TriageResult | None      # Session 2's triage answer
+    order_data: dict | None          # filled by fetch_order_data ($79.99)
+    policy_chunks: list[dict]        # empty in this checkpoint
+    resolution_plan: ResolutionPlan | None   # the plan: actions and refund amount
+    ...                              # repair and approval fields
+    customer_reply_draft: str | None # text for the customer
+    internal_note: str | None        # text for the support team</code></pre>
+  <p class="small">Fields start empty and fill in as the steps run. A saved copy tells you exactly how far a run got.</p>
+  <aside class="learn">
+    <p>Read the fields top to bottom and you are reading the run in order. <code>request_id</code>, <code>ticket_id</code>, <code>ticket_text</code> and <code>customer_name</code> are set by <code>POST /tickets</code> before the run starts, and <code>customer_name</code> comes from <code>tickets.json</code>, not from the text the model reads. Then each step fills its own field: <code>triage</code> by the triage step, <code>order_data</code> and <code>customer_match</code> by <code>fetch_order_data</code>, <code>resolution_plan</code> by the planner.</p>
+    <p>Because fields start empty and fill in step by step, a saved copy dates a crash: <code>triage</code> filled and <code>order_data</code> empty means the run died fetching the order. The last two fields are kept apart on purpose. The reply goes to the customer and the internal note to staff, so one can't be sent as the other by accident. The rest of the fields are on slide 26.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Idea 1</span>Deskhand's workflow: eleven nodes</h2>
+  <div class="figure">
+  <svg viewBox="0 0 1080 305" width="1300" height="367" role="img" aria-label="Workflow node graph, colored by kind of node">
+    <defs>
+      <marker id="ar5c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#9db5b1"/>
+      </marker>
+    </defs>
+    <g font-family="Cascadia Code, Consolas, monospace" font-size="15" fill="#eef6f3" text-anchor="middle">
+      <rect x="10" y="20" width="180" height="46" rx="9" fill="#0d3029" stroke="#01d294"/><text x="100" y="49">normalize_ticket</text>
+      <rect x="225" y="20" width="100" height="46" rx="9" fill="#251f3d" stroke="#b99cff"/><text x="275" y="49">triage</text>
+      <rect x="360" y="20" width="190" height="46" rx="9" fill="#112a45" stroke="#5aa2ff"/><text x="455" y="49">fetch_order_data</text>
+      <rect x="585" y="20" width="255" height="46" rx="9" fill="#251f3d" stroke="#b99cff"/><text x="712" y="49">generate_resolution_plan</text>
+      <rect x="875" y="20" width="150" height="46" rx="9" fill="#0d3029" stroke="#01d294"/><text x="950" y="49">validate_plan</text>
+      <rect x="875" y="120" width="150" height="46" rx="9" fill="#251f3d" stroke="#b99cff"/><text x="950" y="149">repair_plan</text>
+      <rect x="600" y="120" width="170" height="46" rx="9" fill="#2e2a14" stroke="#ffc53d"/><text x="685" y="149">approval_gate</text>
+      <rect x="600" y="220" width="170" height="46" rx="9" fill="#112a45" stroke="#5aa2ff"/><text x="685" y="249">execute_actions</text>
+      <rect x="290" y="220" width="250" height="46" rx="9" fill="#251f3d" stroke="#b99cff"/><text x="415" y="249">draft_customer_reply</text>
+      <rect x="120" y="220" width="120" height="46" rx="9" fill="#0d3029" stroke="#01d294"/><text x="180" y="249">finalize</text>
+      <rect x="10" y="120" width="190" height="46" rx="9" fill="#3a1c1f" stroke="#ff7a7a"/><text x="105" y="149">handle_failure</text>
+      <g stroke="#9db5b1" stroke-width="2" fill="none">
+        <line x1="190" y1="43" x2="217" y2="43" marker-end="url(#ar5c)"/>
+        <line x1="325" y1="43" x2="352" y2="43" marker-end="url(#ar5c)"/>
+        <line x1="550" y1="43" x2="577" y2="43" marker-end="url(#ar5c)"/>
+        <line x1="840" y1="43" x2="867" y2="43" marker-end="url(#ar5c)"/>
+        <line x1="985" y1="66" x2="985" y2="112" marker-end="url(#ar5c)"/>
+        <line x1="915" y1="120" x2="915" y2="74" marker-end="url(#ar5c)"/>
+        <line x1="880" y1="62" x2="778" y2="124" marker-end="url(#ar5c)"/>
+        <line x1="900" y1="66" x2="778" y2="220" marker-end="url(#ar5c)"/>
+        <line x1="685" y1="166" x2="685" y2="212" marker-end="url(#ar5c)"/>
+        <line x1="600" y1="155" x2="490" y2="214" marker-end="url(#ar5c)"/>
+        <line x1="600" y1="243" x2="548" y2="243" marker-end="url(#ar5c)"/>
+        <line x1="290" y1="243" x2="248" y2="243" marker-end="url(#ar5c)"/>
+      </g>
+      <g font-family="Segoe UI, sans-serif" font-size="15" fill="#9db5b1">
+        <text x="1035" y="96">broken</text>
+        <text x="950" y="100">fixed</text>
+        <text x="755" y="98" text-anchor="end">needs approval</text>
+        <text x="900" y="205">no approval needed</text>
+        <text x="728" y="196">approved</text>
+        <text x="520" y="178" text-anchor="end">rejected</text>
+        <text x="215" y="148" text-anchor="start" fill="#ff7a7a">← any node that raises an error lands here</text>
+      </g>
+      <g font-family="Segoe UI, sans-serif" font-size="14" text-anchor="start">
+        <rect x="40" y="284" width="14" height="14" rx="3" fill="#b99cff"/><text x="62" y="296" fill="#b99cff">calls the LLM</text>
+        <rect x="215" y="284" width="14" height="14" rx="3" fill="#5aa2ff"/><text x="237" y="296" fill="#5aa2ff">calls the order API</text>
+        <rect x="430" y="284" width="14" height="14" rx="3" fill="#01d294"/><text x="452" y="296" fill="#01d294">plain code</text>
+        <rect x="580" y="284" width="14" height="14" rx="3" fill="#ffc53d"/><text x="602" y="296" fill="#ffc53d">waits for a person</text>
+        <rect x="790" y="284" width="14" height="14" rx="3" fill="#ff7a7a"/><text x="812" y="296" fill="#ff7a7a">failure path</text>
+      </g>
+    </g>
+  </svg>
+  </div>
+  <p class="small">Each step is a <strong>node</strong>: it reads the state, does one job, and names the next node. Failure is a node too.</p>
+  <aside class="learn">
+    <p>A <b>node</b> is one step of the workflow: a Python function in <code>nodes.py</code> that takes the state, does one job and returns the name of the next node. The colours say what each one touches. Four call the LLM: triage, the planner, the repair and the reply. Two call the order API: the lookup and the refund. The ones that decide, like <code>validate_plan</code>, are plain code. <code>approval_gate</code> waits for a person.</p>
+    <p>Failure is a node too. Any node that raises an error is routed to <code>handle_failure</code>, which ends the run with a safe message instead of a stack trace. No run visits all eleven: T-1004 runs eight, T-1001 nine, counting the gate. Section 4 of <code>handouts/session-04-walkthrough.md</code> goes through the nodes one by one.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Idea 1</span>The status field is a state machine</h2>
+  <div class="figure">
+  <svg viewBox="0 -45 1080 345" width="1300" height="415" role="img" aria-label="Run status state machine">
+    <defs>
+      <marker id="ar5b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#01d294"/>
+      </marker>
+      <marker id="ar5r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#ff7a7a"/>
+      </marker>
+      <marker id="ar5y" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#ffc53d"/>
+      </marker>
+    </defs>
+    <g font-family="Cascadia Code, Consolas, monospace" font-size="17" fill="#eef6f3" text-anchor="middle">
+      <rect x="10" y="110" width="120" height="50" rx="25" fill="#13272b" stroke="#9db5b1"/>
+      <text x="70" y="141">queued</text>
+      <rect x="175" y="110" width="130" height="50" rx="25" fill="#0d3029" stroke="#01d294"/>
+      <text x="240" y="141">running</text>
+      <rect x="360" y="110" width="230" height="50" rx="25" fill="#2e2a14" stroke="#ffc53d"/>
+      <text x="475" y="141" fill="#ffc53d">awaiting_approval</text>
+      <rect x="650" y="110" width="145" height="50" rx="25" fill="#112a45" stroke="#5aa2ff"/>
+      <text x="722" y="141" fill="#5aa2ff">executing</text>
+      <rect x="860" y="110" width="160" height="50" rx="25" fill="#13272b" stroke="#b4f05a"/>
+      <text x="940" y="141" fill="#b4f05a">completed</text>
+      <rect x="60" y="225" width="170" height="50" rx="25" fill="#251f3d" stroke="#b99cff"/>
+      <text x="145" y="256" fill="#b99cff">needs_repair</text>
+      <rect x="860" y="225" width="130" height="50" rx="25" fill="#3a1c1f" stroke="#ff7a7a"/>
+      <text x="925" y="256" fill="#ff7a7a">failed</text>
+      <line x1="130" y1="135" x2="167" y2="135" stroke="#01d294" stroke-width="2.5" marker-end="url(#ar5b)"/>
+      <line x1="305" y1="135" x2="352" y2="135" stroke="#ffc53d" stroke-width="2.5" marker-end="url(#ar5y)"/>
+      <line x1="590" y1="135" x2="642" y2="135" stroke="#01d294" stroke-width="2.5" marker-end="url(#ar5b)"/>
+      <line x1="795" y1="135" x2="852" y2="135" stroke="#01d294" stroke-width="2.5" marker-end="url(#ar5b)"/>
+      <path d="M 525 110 C 590 35 870 35 930 104" fill="none" stroke="#ffc53d" stroke-width="2" marker-end="url(#ar5y)"/>
+      <path d="M 285 160 C 340 225 640 225 700 166" fill="none" stroke="#01d294" stroke-width="2" marker-end="url(#ar5b)"/>
+      <line x1="225" y1="160" x2="175" y2="218" stroke="#b99cff" stroke-width="2.5" marker-end="url(#ar5b)"/>
+      <line x1="200" y1="225" x2="392" y2="166" stroke="#ffc53d" stroke-width="2" marker-end="url(#ar5y)"/>
+      <path d="M 228 234 C 420 234 690 234 742 166" fill="none" stroke="#01d294" stroke-width="2" marker-end="url(#ar5b)"/>
+      <line x1="230" y1="262" x2="852" y2="262" stroke="#ff7a7a" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#ar5r)"/>
+      <line x1="770" y1="160" x2="880" y2="221" stroke="#ff7a7a" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#ar5r)"/>
+      <path d="M 240 108 C 240 -60 1068 -60 1068 120 C 1068 210 1050 250 998 250" fill="none" stroke="#ff7a7a" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#ar5r)"/>
+      <g font-family="Segoe UI, sans-serif" font-size="16" fill="#9db5b1">
+        <text x="330" y="100">over $50</text>
+        <text x="616" y="100">approved</text>
+        <text x="728" y="50" fill="#ffc53d">rejected: no refund, a person follows up</text>
+        <text x="650" y="-27" fill="#ff7a7a">any node raises an error</text>
+        <text x="490" y="194">no approval needed (T-1004)</text>
+        <text x="105" y="200">plan broke a rule</text>
+        <text x="145" y="295">fixed and re-checked, up to 2 times</text>
+        <text x="545" y="255" fill="#ff7a7a">still broken after 2 repairs, or any node raises an error</text>
+      </g>
+    </g>
+  </svg>
+  </div>
+  <p class="small">A <strong>state machine</strong>: a fixed list of statuses and the only moves allowed between them. Every run ends in completed or failed, written down.</p>
+  <p class="small muted">"Plan broke a rule": our code found a problem in the plan, such as a refund above the order total.</p>
+  <aside class="learn">
+    <p><code>status</code> is a field with seven allowed values, and a <b>state machine</b> is that list plus the moves allowed between them. Trace T-1004, Lena's $45 keyboard: queued, running, executing (no approval needed), completed. Trace a plan that keeps breaking a rule: running, needs_repair, re-checked, still broken after two repairs, failed.</p>
+    <p>Every run ends in <code>completed</code> or <code>failed</code>, saved in the database, never guessed from a closed connection. One surprise: a run a person rejected ends <code>completed</code>, not <code>failed</code>. It finished its job, and the reply tells the customer a person will follow up. "Over $50" is the usual reason to stop for a person; <code>rules.approval_reasons</code> has the others, such as any replacement. The arrows are a rule the nodes follow, not a check: <code>_set_status</code> in <code>nodes.py</code> would write any of the seven values.</p>
+  </aside>
+</section>
+
+<section class="slide demo">
+  <h2><span class="kicker">Live demo</span>Dana's headphones: you decide at the gate</h2>
+  <div class="callout example" data-label="T-1001, Dana Whitfield"><p>"I ordered the wireless headphones two weeks ago, order #48291. They arrived with a cracked case. I want a refund or a replacement…"</p></div>
+  <ul>
+    <li>Order O-48291: AirBeat Wireless Headphones, <strong>$79.99</strong>, delivered 12 days ago.</li>
+    <li>Predict first: nobody clicks for an hour. What is the run's status after that hour?</li>
+    <li>When it stops for a person, you vote: <strong>approve</strong> or <strong>reject</strong>.</li>
+  </ul>
+  <aside class="learn">
+    <p>Dana's ticket, T-1001: $79.99 headphones with a cracked case, order O-48291. $79.99 is above the $50 auto-approve limit, so after <code>validate_plan</code> the run goes to <code>approval_gate</code>. The gate sends an <code>approval.required</code> event with what the approver needs to decide: the amount, the order total, whose order it is, and why the run stopped. In the lab that event becomes the approval card with Approve and Reject buttons.</p>
+    <p class="answer"><code>awaiting_approval</code>, after an hour or after a week. Only an approve or a reject moves it on. Waiting costs nothing: the gate returns <code>PAUSE</code>, the loop in <code>graph.run</code> ends and the thread exits, so the wait is just a saved row. Approve, and the run continues at <code>execute_actions</code>: one <code>POST /refunds</code> appears in the order API's terminal. Reject, and it skips to the reply and no refund is posted.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Idea 2</span>Save after every node</h2>
+  <div class="cards">
+    <div class="card good"><h4>Save the state</h4><p>One "save or replace" of the run's row: about <strong>10 ms</strong> on a Windows laptop (measured, 200 saves).</p></div>
+    <div class="card bad"><h4>Redo the plan</h4><p>One planner LLM call: about <strong>3 s</strong> and about <strong>$0.0005</strong> in our runs. Plus whatever the model decides differently this time.</p></div>
+  </div>
+  <ul>
+    <li>Saving after every node costs about a tenth of a second per run.</li>
+    <li>Crash mid-run? Restart and continue from the last saved node. Finished nodes don't run again.</li>
+    <li>Debugging a failed run means reading its saved state, not guessing.</li>
+  </ul>
+  <aside class="learn">
+    <p>Is saving after every node worth it? Compare the two cards. A save writes one row, about 10 ms. Redoing one planner call costs about 3 s and about $0.0005, and the model may answer differently the second time. Across a whole run the saves add up to about a tenth of a second. What you buy: a crash loses at most the node that was running, and a failed run can be read instead of guessed at. The line is <code>store.save_state(state, next_node=...)</code> in <code>graph.run</code>, right after each node returns.</p>
+    <p>Don't confuse the save with the log. <code>logs/runs.jsonl</code> is history for people, appended line by line. The row in <code>runs.db</code> is the current state a program resumes from. Deskhand keeps both.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Idea 2</span>The database keeps one row per run</h2>
+  <table class="small">
+    <tr><th>request_id</th><th>status</th><th>next_node</th><th>state_json</th></tr>
+    <tr><td><code>7a04d9e1c2b8</code></td><td><code>running</code></td><td><code>fetch_order_data</code></td><td><code>{"ticket_id": "T-1002", "triage": {…}, …}</code></td></tr>
+    <tr><td><code>3f9c1a2b7d4e</code></td><td><code>awaiting_approval</code></td><td>empty: waits for a person</td><td><code>{"ticket_id": "T-1001", …}</code></td></tr>
+  </table>
+  <p>Each row is saved or replaced after every node. The second row is Dana's run, paused at the gate.</p>
+  <div class="callout" data-label="Your vote"><p>The server crashes now and restarts. Which rows carry on?</p>
+    <ol class="small">
+      <li>Both rows.</li>
+      <li>Only T-1002's row.</li>
+      <li>Neither: a restart starts fresh.</li>
+    </ol>
+  </div>
+  <aside class="learn">
+    <p>The <code>runs</code> table in <code>runs.db</code> has one row per run: its status, the next node to run, and the whole state as JSON. The row is saved or replaced after every node, so it always holds the latest state, never a history. The first row has finished triage and will fetch the order next. The second is Dana's run, paused at the gate and saved with no next node.</p>
+    <p class="answer">Option 2, only T-1002's row. It has a next node, so the restart knows where to pick up. Dana's run has none on purpose: it waits for a person, and a restart isn't a person. Option 1 is tempting because "unfinished means resume", but resuming a paused run would skip the human decision. The next slide shows the line of code that makes the difference.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Idea 2</span>On restart, unfinished runs carry on; a paused run waits</h2>
+  <p>On startup, the service asks the database:</p>
+  <pre><code>SELECT state_json, next_node FROM runs
+WHERE status NOT IN ('completed', 'failed', 'awaiting_approval')</code></pre>
+  <p>Each row it finds restarts at its next node, with the saved state.</p>
+  <ul>
+    <li>T-1002 carries on at <code>fetch_order_data</code>. Triage doesn't run again.</li>
+    <li>Dana's run stays at the gate until someone clicks approve or reject.</li>
+  </ul>
+  <aside class="learn">
+    <p>When the service starts, <code>app.lifespan</code> calls <code>graph.resume_stuck_runs</code>, and <code>store.find_resumable</code> runs the query on the slide: every run that isn't finished and isn't waiting for a person. That leaves <code>queued</code>, <code>running</code>, <code>needs_repair</code> and <code>executing</code>. Each row restarts in its own thread at its saved next node, with its saved state, and writes a <code>run.resumed</code> line to the log.</p>
+    <p>So T-1002 picks up at <code>fetch_order_data</code> and doesn't pay for triage again. <code>awaiting_approval</code> is left out on purpose: restarting Dana's run would skip the person who is supposed to decide on her $79.99. In the code the query says <code>NOT IN (?, ?, ?)</code> and fills in the three statuses.</p>
+  </aside>
+</section>
+
+<section class="slide check">
+  <h2><span class="kicker">Predict</span>The server dies in the middle of planning</h2>
+  <ul>
+    <li>A run has finished <code>normalize_ticket</code>, <code>triage</code> and <code>fetch_order_data</code>.</li>
+    <li>The server dies while <code>generate_resolution_plan</code> waits for the LLM.</li>
+    <li>You restart. Which nodes run again?</li>
+    <li>Which LLM call do you pay for twice?</li>
+  </ul>
+  <aside class="learn">
+    <p>Work it out from the save rule. The last save happened after <code>fetch_order_data</code>, and it recorded the planner as the next node.</p>
+    <p class="answer">Only <code>generate_resolution_plan</code> runs again, then everything after it as normal. You pay for the planner call twice, about $0.0005: its first answer was in memory and never saved. "Everything reruns" is how a script behaves. A node can't pick up halfway through its LLM call either, because an HTTP request can't be resumed, so a crash costs at most the node that was running. The second plan may differ from the first, which is fine: nobody saw the first. One detail: <code>cost_usd</code> won't show the double charge, because the first call's cost was only in memory too.</p>
+  </aside>
+</section>
+
+<section class="slide demo">
+  <h2><span class="kicker">Live demo</span>Pull the plug after the refund</h2>
+  <div class="cards">
+    <div class="card"><h4>The run</h4><p>T-1004, Lena's $45 keyboard. Under $50, so nobody has to approve: it goes straight to the refund.</p></div>
+    <div class="card"><h4>The window</h4><p>I add a 10-second pause before the reply is written. The refund is done, the reply isn't.</p></div>
+    <div class="card"><h4>You call it</h4><p>Count down from three. On zero I kill the service.</p></div>
+  </div>
+  <p>Vote before I restart it:</p>
+  <ol class="small">
+    <li>The run is gone. Lena never hears back.</li>
+    <li>It starts again from the top and refunds a second time.</li>
+    <li>It carries on at the reply. One refund in total.</li>
+  </ol>
+  <aside class="learn">
+    <p>T-1004 is Lena's $45 keyboard. Under $50, so the run goes straight from <code>validate_plan</code> to <code>execute_actions</code> and the refund happens with no person involved. A <code>time.sleep(10)</code> at the top of <code>draft_customer_reply</code> opens a window: the refund is done and saved, the reply isn't written yet. Killing the service in that window is a crash between two nodes.</p>
+    <p class="answer">Option 3: it carries on at the reply, with one refund in total. Before the restart the saved row says status <code>executing</code>, next node <code>draft_customer_reply</code>; after it, <code>completed</code>. The order API's terminal still shows one <code>POST /refunds</code>. Option 1 assumes the run lives in the thread, but the thread only does the work: the run lives in the row. Option 2 is a job queue retrying from the top. Here <code>execute_actions</code> had finished and been saved, so the restart never ran the refund code again.</p>
+  </aside>
+</section>
+
+<section class="slide lead">
+  <h1>Break · 10 minutes</h1>
+  <p class="subtitle">Next: what the screen may see while a run is in progress, and what a refresh loses</p>
+  <aside class="learn">
+    <p>A ten-minute break. The last block is about what a screen may see while a run is in progress, and what a page refresh loses. The answer to the second is less than you'd think.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Idea 3</span>Polling, next to a stream of events</h2>
+  <div class="cols">
+    <div>
+      <h3>Polling: ask again and again</h3>
+      <pre><code>GET /runs/3f9c…  "running"
+GET /runs/3f9c…  "running"
+GET /runs/3f9c…  "running"
+GET /runs/3f9c…  "awaiting_approval"</code></pre>
+    </div>
+    <div>
+      <h3>A stream: one request, it keeps writing</h3>
+      <pre><code>id: 4
+event: node.started
+data: {"node": "triage"}
+
+id: 5
+event: node.completed
+data: {"node": "triage", ...}</code></pre>
+    </div>
+  </div>
+  <div class="callout plain"><p>An <strong>event stream</strong> is a normal HTTP GET whose response doesn't end. The server writes a few lines per event, then a blank line. It only goes one way: server to screen.</p></div>
+  <aside class="learn">
+    <p>Two ways for a screen to follow a run. <b>Polling</b>: ask <code>GET /runs/{id}</code> again and again. You get "running" many times and still see each change up to one interval late. A <b>stream</b>: one <code>GET /runs/{id}/events</code> whose response never ends. For each event the server writes an <code>id:</code> line, an <code>event:</code> line and a <code>data:</code> line of JSON, then a blank line, and the screen gets each change as soon as it is saved. It only goes from server to screen, which is all a viewer needs. The standard is called <b>Server-Sent Events</b> (SSE).</p>
+    <p>Triage starts at id 4 because events 1 to 3 are <code>normalize_ticket</code> starting, the status changing to running, and <code>normalize_ticket</code> completing. The ids are what make reconnecting work (slide 18).</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Idea 3</span>What may reach the screen mid-run: progress, never half a plan</h2>
+  <blockquote>Stream <strong>progress</strong>, never half-finished machine output.<br>
+  Say when a run ends, with an event. Never let a closed connection mean "done".</blockquote>
+  <ul>
+    <li>Only the customer reply streams word by word. Half a sentence is still readable.</li>
+    <li>The plan arrives once, whole and checked, in the last event.</li>
+  </ul>
+  <div class="callout watch"><p>Half a plan on an agent's screen: <code>{"actions": [{"type": "issue_ref</code>. Is that a refund? For how much? This is incident #3, the hook.</p></div>
+  <aside class="learn">
+    <p>This slide is the <b>streaming contract</b>: the rules for what may reach a screen while a run is in progress. People may watch prose being typed: half a sentence is readable, and nobody acts on it. Programs only get finished, checked results: the plan arrives once, whole, inside <code>run.completed</code>, after <code>validate_plan</code> has passed it. The red box is why. Half a plan is useless to a program and misleading to a person, and a plan can still fail the rules and be repaired, so a streamed plan could show a refund that never happens.</p>
+    <p>The end of a run is always an event, <code>run.completed</code> or <code>run.failed</code>. A closed connection never means done. In the code, <code>events.py</code> lists the seven event types, and only <code>draft_customer_reply</code> sends <code>reply.delta</code>. The reply is written after <code>execute_actions</code>, so it describes what was actually done.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Idea 3</span>Reconnecting: the refresh test</h2>
+  <div class="callout example"><p>The agent's Wi-Fi drops after event 7. The browser reconnects by itself and gets 8 onwards. The log records that the viewer left. The run never noticed.</p></div>
+  <ul>
+    <li>The run lives in a background thread and in SQLite, never in the connection.</li>
+    <li>Every event is saved with a number (1, 2, 3, …) before it is sent.</li>
+    <li>A viewer that comes back says "the last one I saw was 7". The server sends 8, 9, 10…, then carries on live.</li>
+  </ul>
+  <aside class="learn">
+    <p>The run was never in the connection. It lives in a background thread and in SQLite. Every event gets a number within its run (1, 2, 3, ...) and is written to the <code>events</code> table by <code>events.publish</code> before any screen sees it. The stream endpoint, <code>run_events</code> in <code>app.py</code>, only reads that table. So when a viewer comes back and says "the last one I saw was 7", the server reads the events after 7, sends them, then carries on live. The viewer leaving is written to the log as <code>stream.disconnected</code>, and the run doesn't notice.</p>
+    <p>The header that carries the "7" is <code>Last-Event-ID</code>. A browser's <code>EventSource</code> sends it by itself when it reconnects; with curl you add it yourself. No header means everything from event 1.</p>
+  </aside>
+</section>
+
+<section class="slide demo">
+  <h2><span class="kicker">Live demo</span>F5 in the middle of a run</h2>
+  <ul>
+    <li>T-1004 again: Lena's keyboard, $45, with the 10-second pause still in.</li>
+    <li>You pick the moment: during the pause, or while the reply is appearing.</li>
+    <li>I press F5 on the lab.</li>
+  </ul>
+  <p>Vote: what is lost?</p>
+  <ol class="small">
+    <li>The run.</li>
+    <li>The $45 refund, or it gets paid again.</li>
+    <li>The reply text so far.</li>
+    <li>Nothing.</li>
+  </ol>
+  <p class="small muted">After F5 the lab page starts blank. We reattach with the request ID and ask the service what it kept.</p>
+  <aside class="learn">
+    <p>F5 reloads the lab page in the browser. The page itself remembers nothing, so it comes back blank, which looks alarming. But the page is only a viewer. You reattach with the request ID (the lab's "or follow a request ID" box) and ask the service what it kept.</p>
+    <p class="answer">Option 4, nothing. The run kept going in its thread, the $45 refund happened once, and every piece of the reply was saved as an event before it was sent, so a reconnect replays all of it. Option 3 is tempting because streamed words feel temporary, but they are rows in the events table. Option 2 comes from "refresh resubmits the form": F5 reloads the page and doesn't send <code>POST /tickets</code> again. You can check from a browser tab: <code>/runs/&lt;id&gt;/events</code> replays every event from 1, and <code>/runs/&lt;id&gt;</code> shows <code>completed</code>.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Recap</span>Three things to remember</h2>
+  <ol>
+    <li>One <strong>state object</strong> holds the whole run, and its status only moves along the arrows. A run waiting at the gate stays there through a restart, until a person decides.</li>
+    <li>Save after every node. A crash costs at most the node that was running, and the restart carries on from the saved row.</li>
+    <li>Stream progress and the reply's words, never half a plan. A viewer who leaves or refreshes loses nothing.</li>
+  </ol>
+  <p class="small muted">The error codes, the five endpoints, the event list and the cost slides are after the divider.</p>
+  <aside class="learn">
+    <p>The three ideas in one line each. If you can answer the two questions below without looking back, you have the session.</p>
+    <p class="answer">Why didn't Lena get a second refund? The refund node had finished and its state was saved, so the restart began at the reply. A run waits at the gate and the server restarts: why doesn't it move? The startup query in <code>store.find_resumable</code> skips runs at <code>awaiting_approval</code>; only <code>POST /approve</code> moves them.</p>
+  </aside>
+</section>
+
+<section class="slide scoreboard">
+  <h2><span class="kicker">Wrap</span>Scoreboard: the streaming incident falls</h2>
+  <ol class="two-col">
+    <li>Sometimes it returns invalid resolution schemas. <span class="tag partial">PARTIAL</span></li>
+    <li class="done">Sometimes it sends customers a generic LLM apology instead of an answer. <span class="tag retired">RETIRED</span></li>
+    <li class="done">Sometimes partial failures are streamed to the support agent's screen. <span class="tag retired">RETIRED</span></li>
+    <li>Retries are not always effective.</li>
+    <li>The order-lookup API may fail, time out, or return inconsistent data.</li>
+    <li>It once suggested a refund larger than the order total.</li>
+    <li>Costs spike on long ticket threads.</li>
+    <li>The same ticket can produce different resolutions.</li>
+    <li>A crash after issuing a refund left the ticket unresolved, and a retry refunded twice.</li>
+    <li>Nobody can debug why a specific run failed. <span class="tag partial">PARTIAL</span></li>
+  </ol>
+  <p class="small"><strong>#3 retired:</strong> only progress events and the reply text stream. <strong>#10 partial:</strong> any run can be looked up by its request ID.</p>
+  <aside class="learn">
+    <p>The ten incidents are v1's production problems from Session 1. #3 is retired: the plan never streams, only progress events and the reply's words do, and every run ends with an explicit event. #10 is partial: every run's state and events are saved and found by request ID, so you can debug one specific run; what's still missing is a view across many runs at once.</p>
+    <p>#1 stays partial: the schema checks the plan's shape, and the business rules in <code>rules.py</code> now check what it is allowed to do. #2 is retired because <code>fetch_order_data</code> looks the order up in code, so the reply answers from real data instead of a polite apology. Section 13 of <code>handouts/session-04-walkthrough.md</code> has an experiment for each incident.</p>
+  </aside>
+</section>
+
+<section class="slide home">
+  <h2><span class="kicker">Tonight</span>Your hands on it, about 45 minutes</h2>
+  <ol>
+    <li>Bring up the order API and <code>checkpoints/02-service</code>. Read <code>graph.py</code>, then <code>nodes.py</code>.</li>
+    <li>Submit T-1001, watch its events, and approve it.</li>
+    <li>Read the saved state. Then stop the order API and watch a run fail with a name.</li>
+    <li>Kill a run after its refund, restart, and count the refunds.</li>
+  </ol>
+  <p>Step by step after the next slide, and in <code>handouts/session-04.md</code>. The lab does every step too, if you prefer buttons.</p>
+  <aside class="learn">
+    <p>Tonight's exercises, about 45 minutes, optional. You do with your own terminals what the lab did in class: bring up the two services and read the runner, run Dana's ticket and approve it, make a run fail by stopping the order API, then kill a run right after its refund, restart, and count the refunds. Each step has its own slide after the next one, and the same steps are in <code>handouts/session-04.md</code>. The lab (<code>py lab\server.py</code>) can do every step with buttons. Keep the request ID of the run you kill.</p>
+  </aside>
+</section>
+
+<section class="slide lead">
+  <h1>After class</h1>
+  <p class="subtitle">Reference slides and tonight's steps. Not shown in class: open them when you have the repo.</p>
+  <aside class="learn">
+    <p>Reference slides, not shown in class: a glossary, the runner and the plan in code, the error codes, the five endpoints, the event stream by its real names, retries and cost, then tonight's steps one per slide. Read them with the repo open.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Glossary</span>Five words from today</h2>
+  <table class="small">
+    <tr><th>Word</th><th>In plain words</th><th>In Deskhand</th></tr>
+    <tr><td>state object</td><td>One object holding everything about one run</td><td><code>TicketResolutionState</code></td></tr>
+    <tr><td>enum</td><td>A field that may only hold values from a fixed list</td><td><code>status</code>: 7 allowed values</td></tr>
+    <tr><td>state machine</td><td>Statuses plus the moves allowed between them</td><td><code>queued</code> → <code>running</code> → … → <code>completed</code></td></tr>
+    <tr><td>SSE</td><td>Server-Sent Events: an HTTP response that stays open; the server adds lines as things happen</td><td><code>GET /runs/{id}/events</code></td></tr>
+    <tr><td>UPSERT</td><td>Insert the row, or update it if it exists ("save or replace")</td><td><code>store.save_state</code></td></tr>
+  </table>
+  <aside class="learn">
+    <p>Five words from today, each with its plain meaning and where it lives in the code. The one worth reading twice is <b>enum</b>: a field that may only hold values from a fixed list. In Deskhand the enum is a <code>Literal[...]</code> type on <code>status</code>, not Python's <code>Enum</code> class, but it does the same job: a status off the list is rejected when the state is built or read back from the database.</p>
+    <p><b>UPSERT</b> is SQL's "insert, or update if the row already exists". In <code>store.save_state</code> it is <code>INSERT ... ON CONFLICT(request_id) DO UPDATE</code>, which is why each run has exactly one row.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Anatomy</span>Why <code>POST /tickets</code> answers before the work is done</h2>
+  <div class="cards">
+    <div class="card"><h4>The request</h4><p><code>POST /tickets</code> with <code>{"ticket_id": "T-1001"}</code> returns <code>{"request_id": "3f9c1a2b7d4e"}</code> in milliseconds.</p></div>
+    <div class="card"><h4>The work</h4><p>Eleven nodes run in a background thread. Several are LLM calls, so the whole run takes seconds.</p></div>
+    <div class="card"><h4>Following along</h4><p>The screen opens <code>/runs/3f9c1a2b7d4e/events</code> and sees each step as it finishes.</p></div>
+  </div>
+  <div class="callout analogy"><p>A CI build. You push, you get a build number at once, and you watch the log page while the build runs. Nobody keeps the push open until the tests finish.</p></div>
+  <aside class="learn">
+    <p>Three steps, three timescales. The request: <code>submit_ticket</code> in <code>app.py</code> checks the body, makes a 12-character request ID (the start of a random <code>uuid4</code>), saves the first state, starts the thread and returns, all in milliseconds. The work: eleven nodes in that background thread, several of them model calls, so seconds. Following along: the screen opens the events URL and sees each node as it finishes.</p>
+    <p>Notice that the state is saved <i>before</i> the thread starts. <code>GET /runs/{id}</code> works straight away, and a crash before the first node still leaves a row to recover. The endpoint returns 200; a stricter API would return 202 Accepted, the HTTP code for "accepted, not done yet".</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Idea 1</span>The state, part 2: control, errors and cost</h2>
+  <pre><code>    # models.py, after resolution_plan; status's values put on two lines
+    validation_errors: list[str] = Field(default_factory=list)
+    repair_attempts: int = 0
+    requires_approval: bool = False  # decided by rules.approval_reasons
+    approval_reasons: list[str] = Field(default_factory=list)  # shown to the approver
+    approval_status: Literal["not_required", "pending", "approved", "rejected"] = (
+        "not_required"
+    )
+    # ... customer_reply_draft and internal_note, from slide 6 ...
+    status: Literal["queued", "running", "needs_repair", "awaiting_approval",
+                    "executing", "failed", "completed"] = "queued"
+    user_visible_error: str | None = None   # words for the customer
+    internal_error_code: str | None = None  # a code for engineers
+    cost_usd: float = 0.0                   # every LLM call adds its price
+    node_latency_ms: dict[str, int] = Field(default_factory=dict)</code></pre>
+  <p class="small">A <code>Literal[...]</code> field is our enum. Pydantic rejects a value off the list when the state is built or loaded from <code>runs.db</code>. A plain assignment, <code>state.status = "done"</code>, isn't checked.</p>
+  <aside class="learn">
+    <p>The second half of <code>TicketResolutionState</code>. Each field answers a question you'd ask when a run goes wrong. Did it need a person, and why? <code>requires_approval</code> and <code>approval_reasons</code>, both set by code in <code>validate_plan</code>. What did the person decide? <code>approval_status</code>. Why did it fail? <code>internal_error_code</code> for engineers, <code>user_visible_error</code> for the customer. What did it cost? <code>cost_usd</code>, summed from every model call. Which node was slow? <code>node_latency_ms</code>.</p>
+    <p class="answer">If some code writes <code>state.status = "done"</code>, the assignment succeeds: Pydantic checks values when an object is built, and this model doesn't turn on checking for assignments (<code>validate_assignment</code>). The bad value is saved, and the error appears when the row is read back, at <code>GET /runs/{id}</code> or at the next startup. That is one reason the nodes change the status in one place, <code>_set_status</code>.</p>
+  </aside>
+</section>
+
+<section class="slide check">
+  <h2><span class="kicker">Predict</span>Lena's keyboard</h2>
+  <div class="callout example" data-label="T-1004, Lena Kovacs"><p>"I received the TypeMaster keyboard (order O-51877) five days ago… I'd like to return it for a refund please… It was $45. Thanks!"</p></div>
+  <ul>
+    <li>Which statuses does this run pass through?</li>
+    <li>Does it stop for a person?</li>
+    <li>Does money move?</li>
+  </ul>
+  <p class="small muted">Check yourself on slide 8 (follow the "no approval needed (T-1004)" arrow) and slide 14's first card.</p>
+  <aside class="learn">
+    <p>Use slide 8's arrows and the $50 limit.</p>
+    <p class="answer">queued, running, executing, completed. $45 isn't over $50, so <code>validate_plan</code> sends the run straight to <code>execute_actions</code>: no person, and money moves, an <code>issue_refund</code> for $45.00. It is the same code as T-1001; the only difference is $45 against $79.99, and that one number decides whether a person is in the loop. That is why it was the ticket killed mid-run: the refund had to happen on its own for the crash to land after it. The refund carries an idempotency key, <code>request_id:0</code>, built from the run: the order API returns the original refund for a key it has already seen instead of paying again.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">The graph</span>The runner is a dict and a while loop</h2>
+  <pre><code>node = "normalize_ticket"                     # graph.py, simplified
+while node not in (None, PAUSE):              # PAUSE: wait for a person
+    emit("node.started", {"node": node})
+    try:
+        next_node = NODES[node](state, emit)  # one job; returns the next name
+    except Exception:                         # also records a code from errors.py
+        next_node = "handle_failure"
+    store.save_state(state, next_node)        # the UPSERT into runs.db
+    emit("node.completed", {"node": node, "latency_ms": ...})
+    node = next_node</code></pre>
+  <div class="callout example"><p><code>validate_plan</code> returns <code>"approval_gate"</code> for T-1001 and <code>"execute_actions"</code> for T-1004.</p></div>
+  <aside class="learn">
+    <p>The whole runner, simplified from <code>graph.run</code>: a name, a loop, and a dict of functions (<code>NODES</code>, at the bottom of <code>nodes.py</code>). Each turn: announce the node started, call it with the state, save, announce it completed, move to the name it returned. The loop never decides where to go. Each node's own code does, with ordinary <code>if</code> statements; the model fills in the state but never picks the next node. A node returns the next name, <code>PAUSE</code> to wait for a person, or <code>None</code> to stop, and any exception routes to <code>handle_failure</code>.</p>
+    <p>Two details in the real file: <code>node.completed</code> goes out after the save, so a screen never sees a node as done before it is on disk, and an error inside <code>handle_failure</code> itself ends the run instead of looping.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">The plan</span>What the planner returns for T-1001</h2>
+  <pre><code>{ "plan_version": "v1", "ticket_id": "T-1001",
+  "category": "product_defect",
+  "actions": [{"type": "issue_refund",
+               "params": {"amount_usd": 79.99, "sku": null, "reason": null}}],
+  "refund_amount_usd": 79.99, "requested_refund_usd": 79.99,
+  "requires_approval": true, "confidence": 0.86, "citations": [],
+  "rationale": "Cracked on arrival, delivered 12 days ago. Over $50: needs approval." }</code></pre>
+  <div class="callout example" data-label="An example plan"><p>Written by hand from <code>models.py</code>, Dana's ticket and order O-48291. <code>rules.check_plan</code> finds 0 violations in it. A real run's wording and confidence will differ.</p></div>
+  <aside class="learn">
+    <p>A plan as data, for Dana's ticket, written by hand from <code>models.py</code> to show the shape. Walk it top to bottom. The category is <code>product_defect</code>, which allows a refund or a replacement. One action, a refund. <code>refund_amount_usd</code> is the amount the rules check and the amount that is paid; <code>requested_refund_usd</code> is what Dana asked for, and the two match. It is over $50, so <code>requires_approval</code> must be true. <code>rules.check_plan</code> finds no violations in it.</p>
+    <p class="answer">Which field should the customer never see? <code>rationale</code>, the model's reasons; it goes into the internal note for staff. And after every planner call, code overwrites <code>ticket_id</code> with the real one: code owns that field, not the model.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">The plan</span>Three fields worth a second look</h2>
+  <div class="cards">
+    <div class="card"><h4>plan_version</h4><p>Always <code>"v1"</code>. It pins the shape, so plans from different months can be compared.</p></div>
+    <div class="card"><h4>params</h4><p>A typed object with <code>extra="forbid"</code>, not a <code>dict</code>. Strict structured outputs reject an open <code>dict</code>, so the API call itself fails.</p></div>
+    <div class="card"><h4>rationale</h4><p>The model's reasons. It goes into the internal note for staff, and never into the customer's reply.</p></div>
+  </div>
+  <div class="callout watch"><p><code>requires_approval</code> is the model's claim, and code checks it. The same plan with <code>false</code> gets: "refunds above $50.00 and replacements require requires_approval=true".</p></div>
+  <aside class="learn">
+    <p><code>plan_version</code> is a <code>Literal</code> with one value, <code>"v1"</code>: every stored plan names the shape it was written in, so plans from different months can be compared. <code>params</code> is a typed object, <code>ActionParams</code>, with <code>extra="forbid"</code>. <b>Strict structured outputs</b>, where the provider holds the model to your schema, need every field declared up front, so an open <code>dict</code> makes the API call itself fail. Keeping <code>rationale</code> out of the reply rests on the reply prompt: <code>draft_customer_reply</code> passes the whole plan to the model with "do not echo it".</p>
+    <p>The red box matters most. The model fills in <code>requires_approval</code>, but <code>rules.check_plan</code> doesn't trust it: the same plan with <code>false</code> returns exactly the violation on the slide, and that sends the plan to <code>repair_plan</code>. Whether the run stops at the gate is decided by <code>rules.approval_reasons</code>, never by the flag.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Errors</span>Two error fields, two readers</h2>
+  <pre><code>status = "failed"
+internal_error_code = "REPAIR_EXHAUSTED"         # for engineers: a fixed code
+user_visible_error = "We couldn't generate a reliable resolution for this ticket. " \
+                     "It has been routed to a human agent."  # for the customer</code></pre>
+  <div class="cards">
+    <div class="card"><h4>internal_error_code</h4><p>One of 13 codes in <code>errors.py</code>. Logs, dashboards and alerts group by it.</p></div>
+    <div class="card"><h4>user_visible_error</h4><p>Chosen from <code>USER_MESSAGES</code> for that code. The screen shows it word for word, never <code>str(exception)</code>.</p></div>
+  </div>
+  <aside class="learn">
+    <p>Every failed run carries two things for two readers. For engineers, <code>internal_error_code</code>: one of 13 fixed codes in <code>errors.py</code>, so logs and alerts can group failures by cause. For the customer, <code>user_visible_error</code>: a sentence that <code>handle_failure</code> picks from the <code>USER_MESSAGES</code> table by that code. The screen shows it word for word.</p>
+    <p>The exception text itself, which might hold a stack trace or a provider's error, goes to the log as <code>detail</code> on the <code>node.error</code> line and has no path to the screen. Tonight's step 3 makes a run fail this way: one calm sentence on the stream, the code in the log.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Errors</span>The 13 error codes, in four groups</h2>
+  <table class="small">
+    <tr><th>Group</th><th>Codes</th><th>Example</th></tr>
+    <tr><td>The LLM</td><td><code>LLM_MALFORMED_OUTPUT</code> <code>LLM_RATE_LIMITED</code> <code>LLM_TIMEOUT</code></td><td>The reply isn't a valid <code>ResolutionPlan</code></td></tr>
+    <tr><td>The order API</td><td><code>TOOL_ORDER_API_TIMEOUT</code> <code>TOOL_ORDER_API_ERROR</code> <code>TOOL_ORDER_NOT_FOUND</code></td><td>The mock API is down</td></tr>
+    <tr><td>Plan checks</td><td><code>VALIDATION_SCHEMA_FAILED</code> <code>VALIDATION_BUSINESS_RULE_FAILED</code> <code>REPAIR_EXHAUSTED</code></td><td>Refund above the order total</td></tr>
+    <tr><td>Everything else</td><td><code>BUDGET_EXCEEDED</code> <code>GUARDRAIL_INJECTION_SUSPECTED</code> <code>STREAM_DISCONNECTED</code> <code>INTERNAL_UNEXPECTED</code></td><td>The browser tab closed mid-run</td></tr>
+  </table>
+  <p class="small">These 13 keep their names for the rest of the course, so today's log lines mean the same thing later. Later checkpoints only add codes.</p>
+  <aside class="learn">
+    <p>Don't learn all 13; learn the four groups and one example each. The LLM: the answer isn't a valid plan (<code>LLM_MALFORMED_OUTPUT</code>). The order API: it is down or slow. Plan checks: the plan broke a business rule, and after two repairs, <code>REPAIR_EXHAUSTED</code>. Everything else: <code>INTERNAL_UNEXPECTED</code> is the safe default for a bug. Two codes don't fail the run at all: <code>TOOL_ORDER_NOT_FOUND</code> is logged and the plan asks for the order number, and <code>STREAM_DISCONNECTED</code> is logged when a viewer leaves while the run carries on.</p>
+    <p>In this checkpoint nothing raises <code>VALIDATION_SCHEMA_FAILED</code> (a schema miss arrives as <code>LLM_MALFORMED_OUTPUT</code>), <code>BUDGET_EXCEEDED</code> comes only from <code>agent_bounded.py</code>, which isn't part of the service, and <code>GUARDRAIL_INJECTION_SUSPECTED</code> only when a provider's content filter refuses a prompt.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Contract</span>The HTTP API: five endpoints</h2>
+  <pre><code>GET  /tickets                            -&gt; the 60 tickets, for the picker
+POST /tickets  {"ticket_id": "T-1001"}   -&gt; 200 {"request_id": "3f9c1a2b7d4e"}
+GET  /runs/{request_id}                  -&gt; the saved state, right now
+GET  /runs/{request_id}/events           -&gt; SSE stream of progress
+POST /runs/{request_id}/approve  {"approved": true}   -&gt; resumes a paused run</code></pre>
+  <ul class="small">
+    <li><code>GET /runs/…</code> is safe to refresh any time. The event stream is the live view of the same run.</li>
+    <li><code>/approve</code> on a run that isn't <code>awaiting_approval</code> returns 409.</li>
+  </ul>
+  <div class="callout info"><p>The lab and the console at <code>http://localhost:8000/console</code> use only these endpoints. Anything they do, curl can do.</p></div>
+  <aside class="learn">
+    <p>Five endpoints, all in <code>app.py</code>, and two ways to look at a run. <code>GET /runs/{id}</code> is pull: it returns the saved row, the state plus <code>next_node</code>, and is safe to call any time. The event stream is push: the live view of the same run. Because the state is always in the database, a refresh or a dropped connection costs nothing; ask again.</p>
+    <p><code>POST /approve</code> on a run that isn't <code>awaiting_approval</code> returns 409 Conflict, so a finished run can't be approved again. It isn't airtight: two approvals sent at almost the same moment can both pass the check, because the status changes only when the resumed run saves its next node. The refund's idempotency key keeps that to one payment. The lab and the console use only these five endpoints, so anything they do, curl can do.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Reference</span>The event stream, by its real names</h2>
+  <ul>
+    <li>The standard is <strong>Server-Sent Events</strong> (SSE). Browsers read it with <code>EventSource</code>, which also reconnects by itself.</li>
+    <li>On reconnect the browser sends <code>Last-Event-ID</code>. The server reads <code>WHERE seq &gt; 7</code> from the <code>events</code> table and sends 8, 9, 10…, then carries on live.</li>
+    <li>The disconnect is logged as <code>stream.disconnected</code> with code <code>STREAM_DISCONNECTED</code> in <code>logs/runs.jsonl</code>.</li>
+  </ul>
+  <pre><code>curl.exe -N -H "Last-Event-ID: 7" http://localhost:8000/runs/&lt;request_id&gt;/events</code></pre>
+  <aside class="learn">
+    <p>The real names, for reading the code. The standard is <b>Server-Sent Events</b> (SSE). Browsers read it with the built-in <code>EventSource</code> object, which reconnects by itself and sends a <code>Last-Event-ID</code> header with the last id it received. <code>run_events</code> in <code>app.py</code> reads that header and calls <code>store.events_since</code>, which runs <code>WHERE seq &gt; 7</code> on the events table: that one query is the whole replay. Then it keeps reading every 0.25 s for new events.</p>
+    <p>The curl line does the same by hand: <code>-N</code> turns off curl's buffering so lines appear as they arrive, and <code>-H</code> sends the header. A viewer leaving is logged as <code>stream.disconnected</code>, with the last id it was sent.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Idea 3</span>The seven event types</h2>
+  <table class="small">
+    <tr><th>Event</th><th>Data</th><th>When</th></tr>
+    <tr><td><code>run.status</code></td><td><code>{status}</code></td><td>The status changes</td></tr>
+    <tr><td><code>node.started</code></td><td><code>{node}</code></td><td>A node begins</td></tr>
+    <tr><td><code>node.completed</code></td><td><code>{node, latency_ms, cost_usd, …}</code></td><td>A node ends, state saved</td></tr>
+    <tr><td><code>approval.required</code></td><td><code>{actions, refund_amount_usd, …}</code></td><td>A person must decide</td></tr>
+    <tr><td><code>reply.delta</code></td><td><code>{text}</code></td><td>More words of the reply</td></tr>
+    <tr><td><code>run.completed</code></td><td><code>{reply, plan}</code></td><td>Done: the checked result</td></tr>
+    <tr><td><code>run.failed</code></td><td><code>{user_visible_error}</code></td><td>Done: the safe message only</td></tr>
+  </table>
+  <aside class="learn">
+    <p>Read the table for what is missing. No pieces of the plan, no stack traces and no internal error codes ever go on the wire. <code>run.completed</code> carries the checked plan, once. <code>run.failed</code> carries only the safe sentence. <code>node.completed</code> carries the node's latency and cost, so a screen can show which node is slow and what each one costs while the run happens.</p>
+    <p><code>approval.required</code> carries what an approver needs to disagree with the model: what the customer asked for, the order total, whether the order is theirs, why the run stopped, and the model's rationale. The lab's approval card is built from it. The names are constants in <code>events.py</code>. <code>reply.delta</code> is the only event not copied into the log, because there are so many of them.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Idea 3</span>One run on the wire: T-1001</h2>
+  <div class="figure">
+  <svg viewBox="0 0 1080 345" width="1000" height="319" role="img" aria-label="SSE sequence for T-1001">
+    <defs>
+      <marker id="ar5d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#9db5b1"/>
+      </marker>
+    </defs>
+    <g font-family="Cascadia Code, Consolas, monospace" font-size="15" fill="#eef6f3">
+      <g font-family="Segoe UI, sans-serif" font-size="18" text-anchor="middle">
+        <text x="110" y="24" fill="#ffc53d">Agent's screen</text>
+        <text x="950" y="24" fill="#01d294">Deskhand service</text>
+      </g>
+      <line x1="110" y1="34" x2="110" y2="340" stroke="#24413f" stroke-width="2"/>
+      <line x1="950" y1="34" x2="950" y2="340" stroke="#24413f" stroke-width="2"/>
+      <line x1="115" y1="60" x2="943" y2="60" stroke="#01d294" stroke-width="2" marker-end="url(#ar5d)"/>
+      <text x="130" y="53">POST /tickets {"ticket_id":"T-1001"}  → {request_id}</text>
+      <line x1="115" y1="92" x2="943" y2="92" stroke="#01d294" stroke-width="2" marker-end="url(#ar5d)"/>
+      <text x="130" y="85">GET /runs/{request_id}/events</text>
+      <g fill="#9db5b1">
+        <line x1="945" y1="122" x2="117" y2="122" stroke="#9db5b1" stroke-width="1.6" marker-end="url(#ar5d)"/>
+        <text x="130" y="115">node.started {"node":"normalize_ticket"}</text>
+        <line x1="945" y1="150" x2="117" y2="150" stroke="#9db5b1" stroke-width="1.6" marker-end="url(#ar5d)"/>
+        <text x="130" y="143">run.status {"status":"running"}</text>
+        <line x1="945" y1="178" x2="117" y2="178" stroke="#9db5b1" stroke-width="1.6" marker-end="url(#ar5d)"/>
+        <text x="130" y="171">… node.started / node.completed for each node, up to validate_plan …</text>
+      </g>
+      <line x1="945" y1="208" x2="117" y2="208" stroke="#ffc53d" stroke-width="2" marker-end="url(#ar5d)"/>
+      <text x="130" y="201" fill="#ffc53d">approval.required {"refund_amount_usd":79.99, …}   (stream waits)</text>
+      <line x1="115" y1="240" x2="943" y2="240" stroke="#ffc53d" stroke-width="2" marker-end="url(#ar5d)"/>
+      <text x="130" y="233" fill="#ffc53d">POST /runs/{request_id}/approve {"approved":true}</text>
+      <line x1="945" y1="272" x2="117" y2="272" stroke="#9db5b1" stroke-width="1.6" marker-end="url(#ar5d)"/>
+      <text x="130" y="265" fill="#9db5b1">run.status "executing" … reply.delta ×N (Dana's reply, a few words at a time)</text>
+      <line x1="945" y1="304" x2="117" y2="304" stroke="#b4f05a" stroke-width="2" marker-end="url(#ar5d)"/>
+      <text x="130" y="297" fill="#b4f05a">run.completed {reply, plan}</text>
+      <text x="130" y="334" fill="#ff7a7a" font-family="Segoe UI, sans-serif" font-size="15">On any failure instead: run.failed {user_visible_error}, and the stream closes.</text>
+    </g>
+  </svg>
+  </div>
+  <aside class="learn">
+    <p>Dana's run as it travels between the screen and the service. Two requests from the screen start it: the <code>POST</code>, then the <code>GET</code> that stays open. <code>normalize_ticket</code> starts before the status turns to running, because that node is the one that sets it. Then a started and a completed for each node, up to <code>validate_plan</code>. Then <code>approval.required</code>, and the stream waits along with the run; a keep-alive comment line goes out every 15 s so the connection isn't dropped as idle.</p>
+    <p>The approval is a separate <code>POST</code>, from any window. Then executing, the reply a few words at a time, and <code>run.completed</code> with the plan, exactly once. On any failure, <code>run.failed</code> instead. The stream closes only after the run is finished and a read finds nothing new, so the last event always arrives.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Looking ahead</span>What a framework would take over</h2>
+  <div class="callout plain"><p>LangGraph: a Python library that runs a graph of nodes and saves after each step.</p></div>
+  <table class="small">
+    <tr><th>You write it today</th><th>LangGraph's version (<code>graph_lg.py</code>)</th></tr>
+    <tr><td><code>store.save_state</code> after every node</td><td>a checkpoint after every step, in <code>runs.langgraph.db</code></td></tr>
+    <tr><td><code>approval_gate</code> returns <code>PAUSE</code></td><td><code>interrupt(...)</code>, resumed with <code>Command(resume=...)</code></td></tr>
+    <tr><td><code>resume_stuck_runs</code> restarts at <code>next_node</code></td><td><code>invoke(None)</code> on the same <code>thread_id</code></td></tr>
+  </table>
+  <div class="callout watch"><p>Still yours: the nodes, the rules, the event log behind the stream, the key each refund carries so the order API ignores a repeat. LangGraph knows where to continue, not whether a refund is safe to repeat.</p></div>
+  <aside class="learn">
+    <p><b>LangGraph</b> is a Python library that runs a graph of nodes and saves after each step. The left column is what you read today in <code>graph.py</code>. The right column is the same idea in <code>graph_lg.py</code>, which sits in the same folder and runs the same <code>nodes.py</code> when the service starts with <code>DESKHAND_RUNTIME=langgraph</code>. Once you have read the left column, the right one isn't magic: the save after every node becomes a checkpoint, the gate's <code>PAUSE</code> becomes <code>interrupt(...)</code>, and restarting at <code>next_node</code> becomes <code>invoke(None)</code> on the same thread id.</p>
+    <p>Read the bottom box twice. A framework knows where to continue a run. It doesn't know your business rules, what the screen should see, or whether a refund is safe to repeat: the nodes, the rules, the event log and the idempotency key stay your code.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Resilience</span>Retry, repair, or stop: pick by error type</h2>
+  <div class="cards">
+    <div class="card"><h4>Retry</h4><p>Order API timeout, connection error, or 5xx. It may work next time. 5 s timeout, 2 retries, waiting 0.5 s then 1.0 s.</p></div>
+    <div class="card"><h4>Repair</h4><p>Bad LLM output or a broken rule. Asking the same way repeats the mistake, so send the error back. Triage: 1 repair. Plan: 2.</p></div>
+    <div class="card"><h4>Stop cleanly</h4><p>LLM rate limit or timeout in 02: a code from <code>errors.py</code>, <code>run.failed</code>, and a safe message.</p></div>
+  </div>
+  <div class="callout example" data-label="Worst case, one order lookup"><p>3 tries × 5 s + 0.5 s + 1.0 s = <strong>16.5 s</strong>, then <code>TOOL_ORDER_API_TIMEOUT</code>. Do this sum before production does it for you.</p></div>
+  <aside class="learn">
+    <p>The error decides what happens next, and there are three answers. <b>Retry</b> when the next attempt might work: an order API timeout, a refused connection or a 5xx. <code>_order_api_call</code> in <code>nodes.py</code> waits up to 5 s per attempt and retries twice, after 0.5 s and then 1.0 s. A 4xx is an answer, not a glitch, and isn't retried. <b>Repair</b> when asking the same way would get the same mistake: malformed model output, or a broken rule. The error goes back to the model; triage gets one repair, the plan two. <b>Stop cleanly</b> when neither helps: an LLM rate limit or timeout (the SDK has already retried) ends with a code, <code>run.failed</code> and a safe message.</p>
+    <p>Incident #4 happened because v1 retried everything the same way. The 16.5 s sum is the worst case; a stopped mock API refuses the connection at once, so that run fails much faster.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Cost</span>Each node gets only what it needs</h2>
+  <table class="small">
+    <tr><th>Node</th><th>Its prompt contains</th></tr>
+    <tr><td><code>triage</code></td><td>a 57-token system prompt + the ticket</td></tr>
+    <tr><td><code>generate_resolution_plan</code></td><td>a 260-token system prompt + ticket, triage and order data</td></tr>
+    <tr><td><code>draft_customer_reply</code></td><td>reply rules + the ticket + the plan (or "rejected")</td></tr>
+  </table>
+  <ul class="small">
+    <li>Triage never sees order data. Less text: cheaper, faster, less to confuse the model.</li>
+  </ul>
+  <div class="callout info" data-label="Prompt caching"><p>Providers discount a prompt whose start repeats exactly, so put the fixed part first and the ticket last. Our plan prompt (about 450 tokens) is under OpenAI's 1,024-token minimum, so it doesn't pay yet.</p></div>
+  <aside class="learn">
+    <p>Each prompt is built from the state with only the fields that node needs. Triage gets a short system prompt and the ticket, and never sees the order data. The planner (<code>_plan_user_message</code> in <code>nodes.py</code>) gets the ticket, the triage result and the order record. The reply gets its rules, the ticket and the plan, or a note that a person rejected it. Less text is cheaper, faster, and gives the model less to be confused by.</p>
+    <p>The second box is a habit worth starting now. Providers offer <b>prompt caching</b>, a discount on a prompt whose beginning repeats exactly from call to call, so put the fixed part (the system prompt) first and the ticket last. Ours is too short to qualify yet: about 450 tokens, against OpenAI's 1,024-token minimum.</p>
+  </aside>
+</section>
+
+<section class="slide">
+  <h2><span class="kicker">Cost</span>Model routing: a cheap model first</h2>
+  <ul>
+    <li>In 02, every node uses one model: <code>DEFAULT_MODEL</code> (gpt-4.1-mini on Azure, unless you change it).</li>
+    <li>The jobs differ: triage picks one of 6 categories; the plan weighs rules and money.</li>
+    <li>One model for every node is a choice, not a rule: a per-node model setting in config lets triage stay cheap while the planner gets a stronger one.</li>
+  </ul>
+  <div class="callout example" data-label="From PRICE_TABLE in llm.py"><p>gpt-4.1-mini: $0.40 in / $1.60 out per million tokens. gpt-4.1: $2.00 / $8.00, five times more. Route only the planner to the strong model and triage stays cheap.</p></div>
+  <aside class="learn">
+    <p>In this checkpoint every node uses one model, <code>DEFAULT_MODEL</code> in <code>llm.py</code>. The jobs aren't equally hard: triage picks one of six categories, which a cheap model does well, while the plan weighs rules and money. <b>Model routing</b> means choosing the model per node, as a setting in config, so triage stays cheap while the planner gets a stronger model. With the prices on the slide, gpt-4.1 costs five times gpt-4.1-mini, and routing only the planner to it pays that price on one of the run's three or four model calls.</p>
+    <p>The ladder: a cheap model, then a strong one, then a person. The prices in <code>PRICE_TABLE</code> in <code>llm.py</code> are illustrative; check your provider's page before you trust a cost.</p>
+  </aside>
+</section>
+
+<section class="slide home">
+  <h2><span class="kicker">Tonight · step 1</span>Bring up <code>checkpoints/02-service</code></h2>
+  <pre><code># Terminal 1: the mock order API (from deskhand-workshop)
+cd shared\mock_order_api
+py -m uvicorn app:app --port 9000
+
+# Terminal 2: Deskhand (from deskhand-workshop)
+cd checkpoints\02-service
+py -m uvicorn app:app --port 8000</code></pre>
+  <ul>
+    <li>Read <code>graph.py</code>, then <code>nodes.py</code>. Find each of the 11 nodes from slide 7.</li>
+    <li>Prefer buttons? <code>py lab\server.py</code>, then <code>http://localhost:8010</code> runs the same service for you.</li>
+  </ul>
+  <aside class="learn">
+    <p>Two terminals, both started from the repo root. The mock order API is a separate process on purpose: in step 3 you stop it and see what Deskhand does without it. Deskhand needs <code>LLM_PROVIDER</code> and its keys in the <code>.env</code> at the repo root. Before you run a ticket, read <code>graph.py</code>: it is short, and the loop in <code>run</code> is slide 28 in full. Then find each of the eleven nodes in <code>nodes.py</code>, and the <code>NODES</code> dict at the bottom.</p>
+    <p>Common snags: "Could not import module app" means uvicorn ran from the wrong folder, and if port 8000 is taken, use another and change the URLs. The lab's checkpoint 02 and yours share <code>runs.db</code>, so run one at a time.</p>
+  </aside>
+</section>
+
+<section class="slide home">
+  <h2><span class="kicker">Tonight · step 2</span>Submit T-1001, watch it, approve it</h2>
+  <pre><code># Terminal 3 (PowerShell): submit, then stream
+$r = Invoke-RestMethod -Method Post http://localhost:8000/tickets `
+       -ContentType application/json -Body '{"ticket_id": "T-1001"}'
+curl.exe -N http://localhost:8000/runs/$($r.request_id)/events
+
+# Terminal 4: approve it (paste the request_id)
+$id = "&lt;request_id&gt;"
+Invoke-RestMethod -Method Post http://localhost:8000/runs/$id/approve `
+       -ContentType application/json -Body '{"approved": true}'</code></pre>
+  <ul class="small">
+    <li>Tick off each event type from slide 35 except <code>run.failed</code>, which comes in step 3. The stream waits at <code>approval.required</code> until you approve.</li>
+  </ul>
+  <aside class="learn">
+    <p>The first block submits Dana's ticket, keeps the reply in <code>$r</code> and opens the stream. Watch a started and a completed per node, then <code>approval.required</code>, where the stream waits. In a second terminal, paste the request ID and post the approval; <code>$r</code> only exists in the first terminal. The first window carries on with executing, a run of <code>reply.delta</code> events, and <code>run.completed</code>.</p>
+    <p>Use <code>curl.exe</code>, not <code>curl</code>: in Windows PowerShell 5, <code>curl</code> is a name for <code>Invoke-WebRequest</code>, which waits for the whole response and never shows a stream. Two outcomes look odd but aren't bugs: a plan with only <code>escalate_to_human</code> has nothing to approve and completes, and an approved plan with no <code>POST /refunds</code> chose <code>send_replacement</code>.</p>
+  </aside>
+</section>
+
+<section class="slide home">
+  <h2><span class="kicker">Tonight · step 3</span>Read the state, then make a run fail</h2>
+  <ul>
+    <li>Read the saved state: <code>Invoke-RestMethod http://localhost:8000/runs/$id</code>. Find <code>status</code>, <code>cost_usd</code> and <code>node_latency_ms</code>. Which node was slowest?</li>
+    <li>Now <strong>stop the mock API</strong> (Ctrl+C in terminal 1) and submit T-1004: step 2's two commands, with <code>"T-1004"</code>.</li>
+    <li>The stream shows <code>run.failed</code>: "We couldn't look up the order for this ticket right now. It has been routed to a human agent."</li>
+    <li>Find the engineer's view, from <code>checkpoints\02-service</code>: <code>Get-Content logs\runs.jsonl -Tail 8</code> shows <code>node.error</code> with <code>TOOL_ORDER_API_ERROR</code>.</li>
+    <li>Start the mock API again before step 4.</li>
+  </ul>
+  <aside class="learn">
+    <p>Two halves. First, read the saved state of the run you approved and find the slowest node in <code>node_latency_ms</code>; expect one of the model calls. Then make a run fail on purpose. With the mock API stopped, <code>fetch_order_data</code> gets a refused connection, retries twice (0.5 s, then 1.0 s) and raises <code>TOOL_ORDER_API_ERROR</code>, and <code>handle_failure</code> picks the customer's sentence. One failure, two views: the stream shows the safe sentence, the log shows <code>node.error</code> with the code and the real exception text.</p>
+    <p>It is <code>TOOL_ORDER_API_ERROR</code> and not a timeout because a refused connection is a transport error, not a slow answer. A made-up order ID doesn't fail a run at all: "not found" is an answer, and the plan asks for the order number.</p>
+  </aside>
+</section>
+
+<section class="slide home">
+  <h2><span class="kicker">Tonight · step 4</span>Kill it mid-run</h2>
+  <ol class="small">
+    <li>In <code>nodes.py</code>, add <code>time.sleep(10)</code> as the first line of <code>draft_customer_reply</code>. Restart Deskhand.</li>
+    <li>Submit T-1004 and stream it. When you see <code>node.completed</code> for <code>execute_actions</code>, press <strong>Ctrl+C</strong> in terminal 2.</li>
+    <li>Read what was saved, from <code>checkpoints\02-service</code> (no <code>sqlite3</code> needed):</li>
+  </ol>
+  <pre><code>py -c "import store; s, n = store.load_state('&lt;request_id&gt;'); print(s.status, n)"</code></pre>
+  <p class="small">Expect <code>executing draft_customer_reply</code>: the refund is done, the reply isn't.</p>
+  <aside class="learn">
+    <p>The crash from class, on your machine. The sleep at the top of <code>draft_customer_reply</code> gives you ten seconds after the refund and before the reply (<code>nodes.py</code> already imports <code>time</code>, and uvicorn runs without <code>--reload</code>, so restart it after editing). When <code>node.completed</code> for <code>execute_actions</code> appears, press Ctrl+C. The one-liner calls <code>store.load_state</code> and prints the status and the next node: <code>executing draft_customer_reply</code> means the refund is done, the reply isn't, and the row knows.</p>
+    <p>If uvicorn says it is waiting for connections to close, press Ctrl+C again quickly, or close the curl window first; otherwise the run may finish and you'll see <code>completed None</code>. "cannot unpack non-iterable NoneType" means the request ID was wrong.</p>
+  </aside>
+</section>
+
+<section class="slide home">
+  <h2><span class="kicker">Tonight · step 5</span>Resume it</h2>
+  <ul>
+    <li>Restart Deskhand: <code>py -m uvicorn app:app --port 8000</code>. <code>resume_stuck_runs</code> picks the run up at <code>draft_customer_reply</code>.</li>
+    <li>Reattach, skipping what you saw: <code>curl.exe -N -H "Last-Event-ID: &lt;last id&gt;" http://localhost:8000/runs/&lt;request_id&gt;/events</code></li>
+    <li>Terminal 1 shows one <code>POST /refunds</code>, not two.</li>
+    <li>Find the run's story in <code>logs\runs.jsonl</code>: search for the <code>request_id</code>, and spot <code>run.resumed</code>.</li>
+    <li>Remove the <code>time.sleep(10)</code>.</li>
+  </ul>
+  <aside class="learn">
+    <p>Restarting runs <code>resume_stuck_runs</code>, which finds your run (<code>executing</code> is neither finished nor paused) and restarts it at <code>draft_customer_reply</code>. Reattach with the last event id you saw and the stream continues, with a second <code>node.started</code> for the reply. Terminal 1 shows one <code>POST /refunds</code>, not two: <code>execute_actions</code> had finished and been saved before the crash, so it never ran again. In the log, the run's lines tell the story in order, with <code>run.resumed</code> where the restart picked it up.</p>
+    <p>Remove the sleep afterwards. If you restarted the mock API in between, its refund list is empty: it keeps refunds in memory, so that is a reset, not a missing refund.</p>
+  </aside>
+</section>
+
+</main>
+</body>
+</html>

@@ -34,6 +34,8 @@
     <button class="tab" data-view="repeat" type="button">Repeat</button>
     <button class="tab" data-view="incidents" type="button">Incidents</button>
     <button class="tab" data-view="logs" type="button">Logs</button>
+    <button class="tab" data-view="orders" type="button">Orders</button>
+    <button class="tab" data-view="state" type="button">Saved state</button>
   </nav>
   <div class="topbar-right">
     <label class="model-pick" title="Which model the checkpoints call. The lab passes it to the processes it starts; .env is never edited.">
@@ -44,6 +46,7 @@
     <button id="setup-btn" class="btn btn-ghost setup-btn" type="button" title="LLM, mock order API and the checkpoint services">
       <span id="setup-dots" class="dots"></span><span>Setup</span>
     </button>
+    <button id="clean-slate-btn" class="btn btn-ghost" type="button" title="Delete the logs, the saved state and the run history. Asks first.">Clean slate</button>
     <button id="why-toggle" class="btn btn-ghost toggle" type="button" title="Show a short teaching note under every panel">Teaching notes</button>
     <button id="cites-toggle" class="btn btn-ghost toggle" type="button" title="Show file:line links that open the responsible code in VS Code">Code links</button>
     <button id="theme-toggle" class="btn btn-ghost theme-btn" type="button" aria-label="Switch theme" title="Switch theme">
@@ -243,9 +246,19 @@
         <div class="step-head">The v1 incident list</div>
         <p class="muted small">
           The ten problems from the Session 1 scoreboard. Each card picks the ticket that tends to reproduce
-          the incident, runs it on checkpoint 00, or on the checkpoint that retires it.
+          the incident, runs it on checkpoint 00, or on the checkpoint that retires it. <b>Side by side</b> runs
+          both at once and explains how the fix works, with the rows that prove it.
         </p>
+        <div class="controls">
+          <label class="field">side by side, at the approval gate
+            <select id="inc-approval">
+              <option value="approve">auto-approve</option>
+              <option value="reject">auto-reject</option>
+            </select>
+          </label>
+        </div>
       </div>
+      <div id="incident-out"></div>
       <div id="incident-board" class="board"></div>
     </div>
 
@@ -269,6 +282,40 @@
       <div id="logs-root"></div>
     </div>
 
+    <!-- Orders -->
+    <div id="view-orders" class="view" hidden>
+      <div class="step">
+        <div class="step-head">Orders: what the order system really holds</div>
+        <p class="muted small">The source of truth to check a run against. Click an order for its details.</p>
+        <p class="why small">
+          A service sees an order only through <code>GET /orders/{id}</code>, one at a time. This page reads every order
+          the same way, with one difference: it sends <code>X-Chaos: none</code>, so a chaos mode never hides the store.
+          The refunds are <code>GET /refunds</code>. Nothing here writes: the lab never pays a refund of its own.
+        </p>
+        <div id="orders-cites"></div>
+      </div>
+      <div id="orders-root"></div>
+    </div>
+
+    <!-- Saved state -->
+    <div id="view-state" class="view" hidden>
+      <div class="step">
+        <div class="step-head">Saved state: what a service's runs.db holds</div>
+        <p class="muted small">
+          One row per run, saved after every node, read straight from the checkpoint's SQLite file. The headline says
+          which runs a restart would pick up. Click a run for its row, its stored events and, on LangGraph, every step.
+        </p>
+        <p class="why small">
+          The log is history for people; the row is the current state a machine resumes from. This page reads
+          <code>runs.db</code> read only, as <code>sqlite3</code> would. Which runs a restart picks up is not the lab's
+          guess: it asks the checkpoint's own <code>store.find_resumable()</code>, the call <code>resume_stuck_runs</code>
+          makes when the service starts. Try it: start a run, stop the service in Setup mid-run, and watch the row stay
+          behind with its next node.
+        </p>
+      </div>
+      <div id="state-root"></div>
+    </div>
+
   </section>
 </main>
 
@@ -281,6 +328,30 @@
   </div>
 </dialog>
 
+<!-- The Orders view's order details (orders.js fills it). Content sits in an
+     inner box, so a click that lands on the <dialog> itself is the backdrop. -->
+<dialog id="order-dialog" class="ord-dialog" aria-labelledby="order-dialog-title">
+  <div class="ord-dialog-inner">
+    <div class="ord-dialog-head">
+      <h3 id="order-dialog-title">Order</h3>
+      <button id="order-dialog-close" class="btn btn-sm btn-ghost" type="button" aria-label="Close">✕</button>
+    </div>
+    <div id="order-dialog-body" class="small"></div>
+  </div>
+</dialog>
+
+<!-- The Saved state view's run details (state.js fills it), built like the
+     order popup: a click on the <dialog> itself is the backdrop. -->
+<dialog id="state-dialog" class="st-dialog" aria-labelledby="state-dialog-title">
+  <div class="st-dialog-inner">
+    <div class="st-dialog-head">
+      <h3 id="state-dialog-title">Run</h3>
+      <button id="state-dialog-close" class="btn btn-sm btn-ghost" type="button" aria-label="Close">✕</button>
+    </div>
+    <div id="state-dialog-body" class="small"></div>
+  </div>
+</dialog>
+
 <script src="/static/core.js"></script>
 <script src="/static/setup.js"></script>
 <script src="/static/picker.js"></script>
@@ -289,6 +360,9 @@
 <script src="/static/cpsvc.js"></script>
 <script src="/static/simple.js"></script>
 <script src="/static/logs.js"></script>
+<script src="/static/orders.js"></script>
+<script src="/static/state.js"></script>
+<script src="/static/cleanslate.js"></script>
 <script src="/static/views.js"></script>
 </body>
 </html>

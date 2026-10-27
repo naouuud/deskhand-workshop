@@ -42,7 +42,7 @@ def page() -> _Page:
 
 
 def test_logs_is_the_fifth_tab_after_incidents(page):
-    assert page.tabs == ["run", "compare", "repeat", "incidents", "logs"]
+    assert page.tabs[:5] == ["run", "compare", "repeat", "incidents", "logs"]
 
 
 def test_the_logs_view_exists_and_starts_hidden(page):

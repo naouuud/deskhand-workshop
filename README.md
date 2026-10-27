@@ -22,8 +22,9 @@ This repo grows after each session, so it never shows you more than you need yet
 | Mon Oct 19 | Session 1 slides and handout, checkpoint 01-triage, the lab (lab/)                                  |
 | Wed Oct 21 | Session 2 slides and handout, the Session 1 measuring script, free LLM providers (LLM_PROVIDERS.md) |
 | Fri Oct 23 | Session 3 slides and handout, the two hooks from class, checkpoint 02-service |
+| Mon Oct 26 | Session 4 slides and handout, a code walkthrough of checkpoint 02's workflow with experiments (handouts/session-04-walkthrough.md) |
 
-Next update: Mon Oct 26, after class.
+Next update: Wed Oct 28, after class.
 
 ## Repo map
 

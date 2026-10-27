@@ -16,6 +16,23 @@ import server
 from logfiles import LogFiles
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line(
+        "markers",
+        "needs(*checkpoints): skip unless these checkpoint folders are on disk",
+    )
+
+
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    # The students' copy grows one push at a time, and server.CHECKPOINTS
+    # lists only the folders on disk. A test written against all five
+    # checkpoints waits, skipped, until the ones it needs arrive.
+    for mark in item.iter_markers("needs"):
+        missing = [cp for cp in mark.args if cp not in server.CHECKPOINTS]
+        if missing:
+            pytest.skip(f"needs checkpoint {', '.join(missing)}, not in this copy yet")
+
+
 @pytest.fixture
 def logs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> LogFiles:
     files = LogFiles(tmp_path)

@@ -45,6 +45,7 @@ def test_level_table(rec, level):
 
 
 # ── R15: the tail and the sources ────────────────────────────────────────
+@pytest.mark.needs("03", "04")
 def test_sources_are_the_logs_of_01_to_04(client, logs):
     logs.event("04", ts(1), "r", "run.accepted", ticket_id="T-1001")
 
@@ -57,6 +58,7 @@ def test_sources_are_the_logs_of_01_to_04(client, logs):
     assert sources["03"]["exists"] is False  # never run: no log yet, not an error
 
 
+@pytest.mark.needs("03", "04")
 def test_tail_merges_all_logs_oldest_first(client, logs):
     logs.event("02", ts(2), "b", "run.accepted", ticket_id="T-1002")
     logs.event("04", ts(1), "a", "run.accepted", ticket_id="T-1001")
@@ -68,6 +70,7 @@ def test_tail_merges_all_logs_oldest_first(client, logs):
     assert [line["src"] for line in body["lines"]] == ["04", "02", "04"]
 
 
+@pytest.mark.needs("03", "04")
 def test_tail_keeps_the_newest_lines(client, logs):
     for minute in range(6):
         logs.event("04", ts(minute), "r", "run.status", status="running")
@@ -77,6 +80,7 @@ def test_tail_keeps_the_newest_lines(client, logs):
     assert [line["ts"] for line in body["lines"]] == [ts(3), ts(4), ts(5)]
 
 
+@pytest.mark.needs("03", "04")
 def test_a_line_is_id_src_ts_level_rec(client, logs):
     logs.event("03", ts(1), "r", "run.accepted", ticket_id="T-1001")
     offset = logs.event("03", ts(2), "r", "run.status", status="running")
@@ -92,6 +96,7 @@ def test_a_line_is_id_src_ts_level_rec(client, logs):
     }
 
 
+@pytest.mark.needs("03", "04")
 def test_an_unparseable_line_is_an_error_carrying_its_raw_text(client, logs):
     torn = '{"ts": "2026-10-20T10:02:00", "request_id": "r", "eve'
     logs.event("04", ts(1), "r", "run.accepted", ticket_id="T-1001")
@@ -117,6 +122,7 @@ def test_a_half_written_last_line_waits_for_its_newline(client, logs):
 
 
 # ── R16: after=<cursor>, the live tail ───────────────────────────────────
+@pytest.mark.needs("03", "04")
 def test_after_returns_only_what_was_appended(client, logs):
     logs.event("02", ts(1), "a", "run.accepted", ticket_id="T-1001")
     cursor = get(client)["cursor"]
@@ -129,6 +135,7 @@ def test_after_returns_only_what_was_appended(client, logs):
     assert get(client, after=body["cursor"])["lines"] == []
 
 
+@pytest.mark.needs("03", "04")
 def test_a_cleared_log_is_read_again_from_zero(client, logs):
     for minute in range(3):
         logs.event("04", ts(minute), "old", "run.status", status="running")
@@ -143,6 +150,7 @@ def test_a_cleared_log_is_read_again_from_zero(client, logs):
 
 
 # ── R17: request_id=<id>, a whole run ────────────────────────────────────
+@pytest.mark.needs("03", "04")
 def test_request_id_finds_every_line_of_that_run_and_nothing_else(client, logs):
     logs.event("04", ts(1), "abc", "run.accepted", ticket_id="T-1001")
     logs.event("04", ts(2), "abcd", "run.accepted", ticket_id="T-1002")  # a longer id
@@ -155,6 +163,7 @@ def test_request_id_finds_every_line_of_that_run_and_nothing_else(client, logs):
 
 
 # ── R18: read only, redacted ─────────────────────────────────────────────
+@pytest.mark.needs("03", "04")
 def test_secrets_are_redacted(client, logs, monkeypatch):
     secret = "sk-test-0123456789abcdef"
     monkeypatch.setattr(server, "_secrets", lambda: [secret])

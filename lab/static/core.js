@@ -14,7 +14,9 @@
    functions on L: setup.js (health, Setup, checkpoint cards), picker.js
    (sidebar), cp00.js / cp01.js / cpsvc.js (live view and final report per
    checkpoint), simple.js (the plain-words copy of every report), logs.js
-   (the Logs view), and views.js last (tabs, routing, boot). A file may call an L function that
+   (the Logs view), orders.js (the Orders view), state.js (the Saved state
+   view), cleanslate.js (the top bar's Clean slate), and views.js last (tabs,
+   routing, boot). A file may call an L function that
    a later file defines, as long as the call happens after boot. */
 window.L = (function () {
   "use strict";
@@ -28,7 +30,7 @@ window.L = (function () {
   //   health: the last GET /api/health (polled every 10s); starting: services mid-start
   //   spend, runCount: the session cost in the top bar
   //   runs: finished traces by lab run_id, so #run/<id> opens without a fetch
-  //   busy: {run, compare, repeat} while one is in flight; a second click does nothing
+  //   busy: {run, compare, repeat, incident} while one is in flight; a second click does nothing
   //   cites: checkpoint 00's code links (Repeat's teaching note uses one)
   //   board: the incident board from GET /api/incidents
   var S = {

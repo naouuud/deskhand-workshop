@@ -7,7 +7,8 @@
    whichever it is; L.ticketBody() turns it into the request body.
    Ticket text is untrusted and can carry prompt-injection payloads, so
    every preview, name and tag goes in through L.el / L.add as text.
-   Reads from L: S, $, el, add, getJSON, chip, titleCase, emit. */
+   Reads from L: S, $, el, add, getJSON, chip, titleCase, emit, and, once the page has
+   booted, orders.orderIdsIn / orders.view (orders.js loads after this file). */
 (function () {
   "use strict";
   var S = L.S, $ = L.$, el = L.el, add = L.add;
@@ -37,7 +38,7 @@
       renderTags();
       renderIncidents();
       renderTickets();
-      if (!S.sel && S.incidents.length) selectIncident(S.incidents[S.incidents.length - 1]);
+      if (!S.sel && S.incidents.length) selectIncident(S.incidents[S.incidents.length - 1], true);
       L.emit("tickets", data);
     }).catch(function (err) {
       $("ticket-list").textContent = "Could not load /api/tickets — " + err.message;
@@ -124,13 +125,14 @@
   }
 
   // The three ways to fill S.sel. key matches the list buttons' data-key;
-  // label is what headlines and confirm dialogs show.
+  // label is what headlines and confirm dialogs show. auto marks the demo
+  // the page picks itself at start, so the Orders view opens no popup for it.
   function selectTicket(t) {
     S.sel = { kind: "dataset", key: t.ticket_id, id: t.ticket_id, label: t.ticket_id + " · " + t.customer_name, text: t.text, tags: t.tags, order_id: t.order_id };
     showSelected();
   }
-  function selectIncident(inc) {
-    S.sel = { kind: "incident", key: inc.key, letter: inc.letter, label: inc.title, text: inc.text, watch: inc.watch };
+  function selectIncident(inc, auto) {
+    S.sel = { kind: "incident", key: inc.key, letter: inc.letter, label: inc.title, text: inc.text, watch: inc.watch, auto: !!auto };
     showSelected();
   }
   function selectCustom(text, from) {
@@ -163,7 +165,17 @@
     if (s.kind === "custom") add(chips, L.chip("custom text", "chip-violet"),
       s.from ? L.chip("from " + s.from, "", "sent to 02–04 as customer_name; 00 and 01 ignore it") : L.chip("no sender", "", "02–04 skip the order-ownership rule for a ticket nobody vouches for"));
     (s.tags || []).forEach(function (tag) { add(chips, L.chip(L.titleCase(tag), HOT_TAGS[tag] ? "chip-warn" : "")); });
-    if (s.order_id) add(chips, L.chip("order " + s.order_id));
+    // The order this ticket is about, as the order system holds it, in the
+    // Orders view's popup (orders.js). A dataset ticket names it in order_id;
+    // a demo or custom ticket only in its text.
+    var orderIds = s.order_id ? [s.order_id] : s.kind === "dataset" ? [] : L.orders.orderIdsIn(s.text);
+    orderIds.forEach(function (id) {
+      var b = el("button", "btn btn-sm btn-ghost", "View order " + id);
+      b.type = "button";
+      b.title = "What the order system holds for " + id + ": items, total, delivery, refunds";
+      b.onclick = function () { L.orders.view(id); };
+      add(chips, b);
+    });
     var box = $("sel-text");
     box.textContent = s.text;
     if (s.watch) add(box, el("div", "watch", "What to watch: " + s.watch));
